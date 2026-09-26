@@ -1,0 +1,876 @@
+import React, { useState } from 'react';
+import { Product, Claim, ClaimStatus, MerchantPlatform } from '../types';
+import { AdminAnalyticsSummary } from './AdminAnalyticsSummary';
+import {
+  TrendingUp,
+  Clock,
+  CheckCircle,
+  XCircle,
+  PlusCircle,
+  ShieldCheck,
+  Search,
+  Filter,
+  ExternalLink,
+  Copy,
+  Check,
+  AlertTriangle,
+  RotateCcw,
+  Download,
+  IndianRupee,
+  Layers,
+  Eye,
+  FileSpreadsheet,
+  FileText,
+  CheckCheck
+} from 'lucide-react';
+
+interface AdminDashboardProps {
+  products: Product[];
+  claims: Claim[];
+  onAddProduct: (product: Omit<Product, 'id' | 'createdAt'>) => void;
+  onUpdateClaimStatus: (claimId: string | number, status: ClaimStatus, adminNote?: string) => void;
+  onViewProof: (claim: Claim, type: 'order' | 'payment' | 'rating') => void;
+  onResetData: () => void;
+  onNotify?: (title: string, message: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({
+  products,
+  claims,
+  onAddProduct,
+  onUpdateClaimStatus,
+  onViewProof,
+  onResetData,
+  onNotify
+}) => {
+  const [activeFilter, setActiveFilter] = useState<'ALL' | ClaimStatus>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [copiedUpi, setCopiedUpi] = useState<string | null>(null);
+
+  // Reject modal state
+  const [rejectingClaimId, setRejectingClaimId] = useState<string | number | null>(null);
+  const [rejectReason, setRejectReason] = useState('Screenshot proof invalid or code mismatch.');
+
+  // Add Product form state
+  const [newTitle, setNewTitle] = useState('');
+  const [newPlatform, setNewPlatform] = useState<MerchantPlatform>('Amazon');
+  const [newImage, setNewImage] = useState('');
+  const [newLink, setNewLink] = useState('');
+  const [newCode, setNewCode] = useState('');
+  const [newCashback, setNewCashback] = useState('200');
+
+  const handleCopyUpi = (upi: string) => {
+    navigator.clipboard.writeText(upi);
+    setCopiedUpi(upi);
+    setTimeout(() => setCopiedUpi(null), 2000);
+  };
+
+  const handleCreateProduct = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle || !newCode) return;
+
+    onAddProduct({
+      title: newTitle.trim(),
+      platform: newPlatform,
+      image:
+        newImage.trim() ||
+        'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&q=80',
+      link: newLink.trim() || 'https://amazon.in',
+      code: newCode.trim().toUpperCase(),
+      cashbackAmount: Number(newCashback) || 150
+    });
+
+    setNewTitle('');
+    setNewImage('');
+    setNewLink('');
+    setNewCode('');
+    setShowAddModal(false);
+  };
+
+  const handleConfirmReject = () => {
+    if (rejectingClaimId) {
+      onUpdateClaimStatus(rejectingClaimId, 'Rejected', rejectReason);
+      setRejectingClaimId(null);
+    }
+  };
+
+  // Filtered claims list
+  const filteredClaims = claims.filter((c) => {
+    const matchesFilter = activeFilter === 'ALL' || c.status === activeFilter;
+    const matchesSearch =
+      c.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.customerMobile.includes(searchQuery) ||
+      c.specialCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.productTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.upiId.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  // Standard RFC-4180 CSV value escaping
+  const escapeCSV = (value: string | number | undefined | null) => {
+    if (value === null || value === undefined) return '""';
+    const str = String(value).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  // Dedicated CSV export handler for auditing and record-keeping
+  const exportClaimsToCSV = (dataset: Claim[], reportTitle: string = 'All_Claims') => {
+    if (dataset.length === 0) {
+      if (onNotify) {
+        onNotify('No Records to Export', 'There are no claims in the selected filter to export.', 'error');
+      }
+      return;
+    }
+
+    const headers = [
+      'Audit_ID',
+      'Submission_Date',
+      'Customer_Full_Name',
+      'Mobile_Number',
+      'Email_Address',
+      'Product_Name',
+      'Merchant_Platform',
+      'Special_Verification_Code',
+      'Required_System_Code',
+      'Code_Match_Verified',
+      'Order_Screenshot_Attached',
+      'Payment_Screenshot_Attached',
+      'Rating_Screenshot_Attached',
+      'Customer_Refund_UPI_ID',
+      'Cashback_Amount_INR',
+      'Claim_Status',
+      'Admin_Audit_Remarks',
+      'Processed_Timestamp'
+    ];
+
+    const rows = dataset.map((c) => {
+      const isMatched = c.specialCode.trim().toUpperCase() === c.systemCode.trim().toUpperCase();
+      return [
+        escapeCSV(c.id),
+        escapeCSV(c.submittedAt),
+        escapeCSV(c.customerName),
+        escapeCSV(c.customerMobile),
+        escapeCSV(c.customerEmail),
+        escapeCSV(c.productTitle),
+        escapeCSV(c.platform),
+        escapeCSV(c.specialCode),
+        escapeCSV(c.systemCode),
+        escapeCSV(isMatched ? 'VERIFIED_MATCH' : 'MISMATCH_ALERT'),
+        escapeCSV(c.orderImgData ? 'YES' : 'NO'),
+        escapeCSV(c.paymentImgData ? 'YES' : 'NO'),
+        escapeCSV(c.ratingImgData ? 'YES' : 'NO'),
+        escapeCSV(c.upiId),
+        escapeCSV(c.cashbackAmount || 150),
+        escapeCSV(c.status),
+        escapeCSV(c.adminNote || 'N/A'),
+        escapeCSV(c.processedAt || 'Pending')
+      ].join(',');
+    });
+
+    // Add UTF-8 BOM (\uFEFF) for Excel compatibility with Unicode characters
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const now = new Date();
+    const dateStamp = now.toISOString().slice(0, 10);
+    const timeStamp = `${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
+    const filename = `WMS_Cashback_Audit_Report_${reportTitle}_${dateStamp}_${timeStamp}.csv`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    const totalDisbursed = dataset
+      .filter((c) => c.status === 'Approved')
+      .reduce((sum, c) => sum + (c.cashbackAmount || 150), 0);
+
+    if (onNotify) {
+      onNotify(
+        'CSV Export Complete!',
+        `Exported ${dataset.length} claim audit records (Total Approved: ₹${totalDisbursed}). File: ${filename}`
+      );
+    }
+    setShowExportModal(false);
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Executive Header Banner */}
+      <div className="bg-slate-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl flex flex-wrap justify-between items-center gap-4 border border-slate-800">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+              <ShieldCheck className="w-5 h-5" />
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
+              Admin Executive Dashboard
+            </h2>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+            Verify Uploaded Screenshot Proofs, Special Code Matches & Payout Approvals
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>+ Add Offer Product</span>
+          </button>
+
+          {/* Prominent Export CSV for Auditing & Record-Keeping */}
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-950/40 transition flex items-center gap-2 cursor-pointer group"
+            title="Export Claims CSV for Auditing and Record-Keeping"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-100 group-hover:scale-110 transition-transform" />
+            <span>Export Audit CSV</span>
+            <span className="bg-emerald-800/80 text-emerald-200 text-[10px] px-1.5 py-0.5 rounded-md font-mono">
+              {claims.length}
+            </span>
+          </button>
+
+          <button
+            onClick={onResetData}
+            className="px-3 py-2 bg-slate-800/80 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 rounded-xl text-xs font-medium border border-slate-700 transition flex items-center gap-1 cursor-pointer"
+            title="Clear All Products and Claims"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Clear All Data</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Recharts Analytics Summary Section */}
+      <AdminAnalyticsSummary claims={claims} />
+
+      {/* Customer Claim Verification & Approval Panel Table */}
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        {/* Table Filters & Search Header */}
+        <div className="p-6 border-b border-slate-100 flex flex-wrap justify-between items-center gap-4">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">
+              Customer Claim Verification & Approval Panel
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Click screenshot thumbnails to inspect full image files before Approving or Rejecting
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search name, phone, code..."
+                className="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-52 bg-white"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Status Filter Dropdown (Pending, Approved, Rejected) */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-300 shadow-2xs rounded-xl px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition">
+              <Filter className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <label htmlFor="claims-status-filter" className="text-[11px] font-bold text-slate-600 uppercase tracking-wider hidden sm:inline">
+                Status:
+              </label>
+              <select
+                id="claims-status-filter"
+                value={activeFilter}
+                onChange={(e) => setActiveFilter(e.target.value as 'ALL' | ClaimStatus)}
+                className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+                aria-label="Filter claims by status"
+              >
+                <option value="ALL">All Statuses ({claims.length})</option>
+                <option value="Pending">⏳ Pending Approvals ({claims.filter((c) => c.status === 'Pending').length})</option>
+                <option value="Approved">✅ Approved Claims ({claims.filter((c) => c.status === 'Approved').length})</option>
+                <option value="Rejected">❌ Rejected Claims ({claims.filter((c) => c.status === 'Rejected').length})</option>
+              </select>
+            </div>
+
+            {/* Active Filter Clear Badge */}
+            {activeFilter !== 'ALL' && (
+              <button
+                onClick={() => setActiveFilter('ALL')}
+                className="px-2.5 py-1 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition flex items-center gap-1"
+                title="Reset status filter to All"
+              >
+                <span>Filter: {activeFilter}</span>
+                <span className="text-indigo-400 hover:text-indigo-700">✕</span>
+              </button>
+            )}
+
+            {/* Filter Quick Pills */}
+            <div className="hidden lg:flex gap-1 bg-slate-100 p-1 rounded-xl">
+              {(['ALL', 'Pending', 'Approved', 'Rejected'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setActiveFilter(filter)}
+                  className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition ${
+                    activeFilter === filter
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+
+            {/* Table-level CSV Export Shortcut */}
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition flex items-center gap-1.5 cursor-pointer"
+              title="Export Claims CSV for Auditing"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Table Content */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
+                <th className="p-4">Customer Details</th>
+                <th className="p-4">Product & Platform</th>
+                <th className="p-4">Special Code Match</th>
+                <th className="p-4">Uploaded Image Proofs</th>
+                <th className="p-4">Refund UPI</th>
+                <th className="p-4">Status</th>
+                <th className="p-4 text-center">Admin Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-xs">
+              {filteredClaims.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center p-12 text-slate-400 font-semibold">
+                    No claims found for selected filter / search.
+                  </td>
+                </tr>
+              ) : (
+                filteredClaims.map((c) => {
+                  const isCodeMatched =
+                    c.specialCode.trim().toUpperCase() === c.systemCode.trim().toUpperCase();
+
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50/80 transition">
+                      {/* Customer Info */}
+                      <td className="p-4">
+                        <p className="font-bold text-slate-900 text-sm">{c.customerName}</p>
+                        <p className="text-slate-600 font-mono text-[11px] mt-0.5">
+                          📱 {c.customerMobile}
+                        </p>
+                        <p className="text-slate-400 text-[10px]">✉️ {c.customerEmail}</p>
+                        <span className="text-[10px] text-slate-400 mt-1 block">
+                          Submitted: {c.submittedAt}
+                        </span>
+                      </td>
+
+                      {/* Product */}
+                      <td className="p-4 max-w-xs">
+                        <p className="font-bold text-slate-800 leading-snug">{c.productTitle}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border">
+                            {c.platform}
+                          </span>
+                          <span className="text-[11px] font-bold text-emerald-700">
+                            ₹{c.cashbackAmount || 150} Cashback
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Code Match */}
+                      <td className="p-4">
+                        <span
+                          className={`font-mono font-bold text-xs ${
+                            isCodeMatched ? 'text-indigo-700' : 'text-rose-600'
+                          }`}
+                        >
+                          {c.specialCode}
+                        </span>
+                        {isCodeMatched ? (
+                          <span className="block text-[10px] text-emerald-600 font-bold mt-0.5">
+                            ✓ System Matched
+                          </span>
+                        ) : (
+                          <div className="text-[10px] text-rose-600 font-bold mt-0.5">
+                            <span>✕ Mismatch!</span>
+                            <span className="block text-slate-400 font-normal">
+                              Req: {c.systemCode}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 3 Uploaded Image Proofs (Clickable) */}
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          {/* Order SS */}
+                          <div
+                            onClick={() => onViewProof(c, 'order')}
+                            className="group relative cursor-pointer"
+                            title="Inspect 1. Order Screenshot"
+                          >
+                            <img
+                              src={c.orderImgData}
+                              alt="Order Proof"
+                              className="w-11 h-11 object-cover rounded-lg border border-slate-300 group-hover:scale-105 transition shadow-sm"
+                            />
+                            <div className="absolute inset-0 bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                              <Eye className="w-3.5 h-3.5" />
+                            </div>
+                            <span className="text-[9px] text-center block text-slate-400 font-medium mt-0.5">
+                              Order
+                            </span>
+                          </div>
+
+                          {/* Payment SS */}
+                          <div
+                            onClick={() => onViewProof(c, 'payment')}
+                            className="group relative cursor-pointer"
+                            title="Inspect 2. Payment Screenshot"
+                          >
+                            <img
+                              src={c.paymentImgData}
+                              alt="Payment Proof"
+                              className="w-11 h-11 object-cover rounded-lg border border-slate-300 group-hover:scale-105 transition shadow-sm"
+                            />
+                            <div className="absolute inset-0 bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                              <Eye className="w-3.5 h-3.5" />
+                            </div>
+                            <span className="text-[9px] text-center block text-slate-400 font-medium mt-0.5">
+                              Payment
+                            </span>
+                          </div>
+
+                          {/* Rating SS */}
+                          <div
+                            onClick={() => onViewProof(c, 'rating')}
+                            className="group relative cursor-pointer"
+                            title="Inspect 3. Rating Review Screenshot"
+                          >
+                            <img
+                              src={c.ratingImgData}
+                              alt="Rating Proof"
+                              className="w-11 h-11 object-cover rounded-lg border border-slate-300 group-hover:scale-105 transition shadow-sm"
+                            />
+                            <div className="absolute inset-0 bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                              <Eye className="w-3.5 h-3.5" />
+                            </div>
+                            <span className="text-[9px] text-center block text-slate-400 font-medium mt-0.5">
+                              Rating
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[9px] text-indigo-600 block mt-1 font-medium">
+                          Click to zoom & inspect
+                        </span>
+                      </td>
+
+                      {/* UPI ID */}
+                      <td className="p-4">
+                        <div className="flex items-center gap-1.5 font-mono font-bold text-slate-800 bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200 w-fit">
+                          <span>{c.upiId}</span>
+                          <button
+                            onClick={() => handleCopyUpi(c.upiId)}
+                            className="text-slate-400 hover:text-indigo-600"
+                            title="Copy UPI"
+                          >
+                            {copiedUpi === c.upiId ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="p-4">
+                        <span
+                          className={`px-3 py-1 rounded-full text-[10px] font-bold inline-block ${
+                            c.status === 'Approved'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : c.status === 'Rejected'
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                              : 'bg-amber-100 text-amber-800 border border-amber-200'
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                        {c.adminNote && (
+                          <span className="block text-[10px] text-slate-500 mt-1 max-w-[140px] truncate" title={c.adminNote}>
+                            Note: {c.adminNote}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="p-4 text-center">
+                        {c.status === 'Pending' ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => onUpdateClaimStatus(c.id, 'Approved', 'Verified & approved.')}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm transition cursor-pointer"
+                            >
+                              ✓ Approve
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRejectingClaimId(c.id);
+                                setRejectReason(
+                                  !isCodeMatched
+                                    ? 'Special verification code does not match.'
+                                    : 'Screenshot proof blurry or incomplete.'
+                                );
+                              }}
+                              className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm transition cursor-pointer"
+                            >
+                              ✕ Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span className="text-slate-400 text-xs font-medium">Processed</span>
+                            <button
+                              onClick={() =>
+                                onUpdateClaimStatus(
+                                  c.id,
+                                  c.status === 'Approved' ? 'Rejected' : 'Approved',
+                                  'Status modified by admin'
+                                )
+                              }
+                              className="text-[11px] text-indigo-600 hover:underline"
+                            >
+                              (Change)
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add Offer Product Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white max-w-xl w-full rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-8">
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-base">Add New Cashback Offer Product</h3>
+                <p className="text-xs text-slate-400">Configure special code and merchant store link</p>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProduct} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Product Title *
+                </label>
+                <input
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  required
+                  placeholder="e.g. Ergonomic Bluetooth Keyboard"
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Merchant Platform *
+                  </label>
+                  <select
+                    value={newPlatform}
+                    onChange={(e) => setNewPlatform(e.target.value as MerchantPlatform)}
+                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="Amazon">Amazon</option>
+                    <option value="Flipkart">Flipkart</option>
+                    <option value="Blinkit">Blinkit</option>
+                    <option value="Myntra">Myntra</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Cashback Reward (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    value={newCashback}
+                    onChange={(e) => setNewCashback(e.target.value)}
+                    required
+                    placeholder="250"
+                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-emerald-600"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Special Verification Code (Customer MUST enter this) *
+                </label>
+                <input
+                  type="text"
+                  value={newCode}
+                  onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                  required
+                  placeholder="e.g. AMZ-KEY-88"
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-mono font-bold text-indigo-700 uppercase outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Product Image URL
+                </label>
+                <input
+                  type="url"
+                  value={newImage}
+                  onChange={(e) => setNewImage(e.target.value)}
+                  placeholder="https://images.unsplash.com/..."
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Store Product Link
+                </label>
+                <input
+                  type="url"
+                  value={newLink}
+                  onChange={(e) => setNewLink(e.target.value)}
+                  placeholder="https://amazon.in/dp/..."
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 py-2.5 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+                >
+                  Create Offer Product
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Reason Confirmation Modal */}
+      {rejectingClaimId && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white max-w-md w-full rounded-3xl shadow-2xl p-6 border border-slate-100">
+            <div className="flex items-center gap-3 text-rose-600 mb-3">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="font-bold text-base text-slate-900">Reject Claim #{rejectingClaimId}</h3>
+            </div>
+            <p className="text-xs text-slate-600 mb-4">
+              Please specify the reason for rejection. This feedback will be displayed to the
+              customer.
+            </p>
+
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={3}
+              className="w-full border border-slate-300 rounded-xl p-3 text-xs outline-none focus:ring-2 focus:ring-rose-500 mb-4"
+              placeholder="e.g. Screenshot proof does not match order delivery receipt."
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setRejectingClaimId(null)}
+                className="flex-1 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmReject}
+                className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md"
+              >
+                Confirm Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Export Audit Modal for Record-Keeping */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white max-w-lg w-full rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white">Export Audit CSV Records</h3>
+                  <p className="text-xs text-slate-300">Compliance & financial record-keeping export</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-3.5 text-xs text-emerald-900 flex items-start gap-2.5">
+                <CheckCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Excel & Google Sheets Compatible (UTF-8 BOM)</p>
+                  <p className="text-[11px] text-emerald-800 mt-0.5">
+                    Includes all 18 audit data points, code verification flags, UPI refund handles, and admin audit notes.
+                  </p>
+                </div>
+              </div>
+
+              {/* Option 1: Full Audit Trail */}
+              <div className="p-4 rounded-2xl border-2 border-indigo-100 hover:border-indigo-400 bg-indigo-50/30 transition flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-950">
+                      1. Complete Audit Trail (All Claims)
+                    </span>
+                    <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full font-mono">
+                      {claims.length} Records
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Exports the entire historical dataset (Pending, Approved, and Rejected) with complete audit details.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => exportClaimsToCSV(claims, 'Full_Audit_Trail')}
+                  className="mt-3.5 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-md shadow-indigo-200 transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Complete Audit CSV ({claims.length} Records)</span>
+                </button>
+              </div>
+
+              {/* Option 2: Filtered Dataset */}
+              <div className="p-4 rounded-2xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 transition flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                      2. Filtered View Export ({activeFilter})
+                    </span>
+                    <span className="bg-slate-200 text-slate-800 text-[10px] font-bold px-2 py-0.5 rounded-full font-mono">
+                      {filteredClaims.length} Records
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    Exports only the currently filtered items (Filter: <strong>{activeFilter}</strong>
+                    {searchQuery ? `, Search: "${searchQuery}"` : ''}).
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => exportClaimsToCSV(filteredClaims, `Filtered_${activeFilter}`)}
+                  className="mt-3.5 w-full bg-slate-900 hover:bg-black text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-emerald-400" />
+                  <span>Download Filtered CSV ({filteredClaims.length} Records)</span>
+                </button>
+              </div>
+
+              {/* Audit Fields Summary Checklist */}
+              <div className="pt-2 border-t border-slate-100">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2">
+                  Audit Columns Included in Export:
+                </span>
+                <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-600 font-mono">
+                  {[
+                    'Audit_ID',
+                    'Submission_Date',
+                    'Customer_Full_Name',
+                    'Mobile_Number',
+                    'Email_Address',
+                    'Product_Name',
+                    'Merchant_Platform',
+                    'Special_Code',
+                    'System_Code',
+                    'Code_Match_Verified',
+                    'Proof_Screenshots',
+                    'Customer_UPI_ID',
+                    'Cashback_Amount',
+                    'Claim_Status',
+                    'Admin_Remarks'
+                  ].map((field) => (
+                    <span key={field} className="bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                      {field}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 border-t border-slate-200 px-6 py-3.5 flex justify-end">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-100 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
