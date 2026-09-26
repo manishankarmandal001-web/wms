@@ -21,13 +21,21 @@ import {
   Eye,
   FileSpreadsheet,
   FileText,
-  CheckCheck
+  CheckCheck,
+  Package,
+  Trash2,
+  Power,
+  ShoppingBag,
+  ListFilter,
+  Printer
 } from 'lucide-react';
 
 interface AdminDashboardProps {
   products: Product[];
   claims: Claim[];
   onAddProduct: (product: Omit<Product, 'id' | 'createdAt'>) => void;
+  onToggleProductStatus: (productId: string | number) => void;
+  onDeleteProduct: (productId: string | number) => void;
   onUpdateClaimStatus: (claimId: string | number, status: ClaimStatus, adminNote?: string) => void;
   onViewProof: (claim: Claim, type: 'order' | 'payment' | 'rating') => void;
   onResetData: () => void;
@@ -38,6 +46,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   products,
   claims,
   onAddProduct,
+  onToggleProductStatus,
+  onDeleteProduct,
   onUpdateClaimStatus,
   onViewProof,
   onResetData,
@@ -48,6 +58,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  // Dashboard section switcher (All / Products / Claims)
+  const [activeSection, setActiveSection] = useState<'all' | 'products' | 'claims'>('all');
+
+  // Product catalogue filters
+  const [productSearch, setProductSearch] = useState('');
+  const [productStatusFilter, setProductStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   // Reject modal state
   const [rejectingClaimId, setRejectingClaimId] = useState<string | number | null>(null);
@@ -67,6 +85,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setCopiedUpi(null), 2000);
   };
 
+  const handleCopyProductCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
+
   const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle || !newCode) return;
@@ -79,7 +103,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&q=80',
       link: newLink.trim() || 'https://amazon.in',
       code: newCode.trim().toUpperCase(),
-      cashbackAmount: Number(newCashback) || 150
+      cashbackAmount: Number(newCashback) || 150,
+      isActive: true
     });
 
     setNewTitle('');
@@ -88,6 +113,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setNewCode('');
     setShowAddModal(false);
   };
+
+  // Filtered Products for Admin
+  const activeProductsCount = products.filter((p) => p.isActive !== false).length;
+  const inactiveProductsCount = products.filter((p) => p.isActive === false).length;
+
+  const filteredProducts = products.filter((p) => {
+    const matchesStatus =
+      productStatusFilter === 'all' ||
+      (productStatusFilter === 'active' && p.isActive !== false) ||
+      (productStatusFilter === 'inactive' && p.isActive === false);
+    const matchesSearch =
+      p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
+      p.code.toLowerCase().includes(productSearch.toLowerCase()) ||
+      p.platform.toLowerCase().includes(productSearch.toLowerCase());
+    return matchesStatus && matchesSearch;
+  });
 
   const handleConfirmReject = () => {
     if (rejectingClaimId) {
@@ -200,6 +241,166 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setShowExportModal(false);
   };
 
+  // Dedicated PDF export handler for official audit report
+  const exportClaimsToPDF = (dataset: Claim[], reportTitle: string = 'All_Claims') => {
+    if (dataset.length === 0) {
+      if (onNotify) {
+        onNotify('No Records to Export', 'There are no claims to export as PDF.', 'error');
+      }
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Pop-up blocked. Please allow pop-ups for this site to generate and print PDF reports.');
+      return;
+    }
+
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const totalPayouts = dataset
+      .filter((c) => c.status === 'Approved')
+      .reduce((sum, c) => sum + (c.cashbackAmount || 150), 0);
+
+    const approvedCount = dataset.filter((c) => c.status === 'Approved').length;
+    const pendingCount = dataset.filter((c) => c.status === 'Pending').length;
+    const rejectedCount = dataset.filter((c) => c.status === 'Rejected').length;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>TBC WMS - Audit Report (${reportTitle})</title>
+        <meta charset="utf-8" />
+        <style>
+          @page { size: A4 landscape; margin: 10mm; }
+          * { box-sizing: border-box; }
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; margin: 0; padding: 15px; font-size: 11px; line-height: 1.4; background: #ffffff; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 14px; }
+          .title { font-size: 18px; font-weight: 800; color: #1e1b4b; }
+          .subtitle { font-size: 11px; color: #64748b; margin-top: 2px; }
+          .meta { text-align: right; font-size: 10px; color: #475569; }
+          .stats { display: flex; gap: 12px; margin-bottom: 14px; }
+          .stat-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; flex: 1; }
+          .stat-label { font-size: 9px; text-transform: uppercase; font-weight: 700; color: #64748b; }
+          .stat-val { font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+          th { background: #f1f5f9; text-align: left; padding: 7px 6px; font-size: 9px; text-transform: uppercase; font-weight: 700; color: #475569; border-bottom: 1px solid #cbd5e1; }
+          td { padding: 7px 6px; border-bottom: 1px solid #f1f5f9; font-size: 10px; vertical-align: top; }
+          .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 9px; }
+          .badge-approved { background: #dcfce7; color: #166534; }
+          .badge-pending { background: #fef3c7; color: #92400e; }
+          .badge-rejected { background: #fee2e2; color: #991b1b; }
+          .footer { margin-top: 20px; padding-top: 8px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; }
+          @media print {
+            .no-print { display: none !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="margin-bottom: 12px; background: #e0e7ff; padding: 8px 14px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-weight: 600; color: #3730a3; font-size: 12px;">📄 PDF Export Preview Ready. Use "Print" to save as PDF.</span>
+          <button onclick="window.print()" style="background: #4f46e5; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 11px;">🖨️ Print / Save as PDF</button>
+        </div>
+        <div class="header">
+          <div>
+            <div class="title">TBC WMS - Official Audit Report</div>
+            <div class="subtitle">Cashback Verification & Disbursement Audit Trail (${reportTitle.replace(/_/g, ' ')})</div>
+          </div>
+          <div class="meta">
+            <div><strong>Generated:</strong> ${formattedDate}</div>
+            <div><strong>Total Records:</strong> ${dataset.length} claims</div>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat-box">
+            <div class="stat-label">Total Claims</div>
+            <div class="stat-val">${dataset.length}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Approved</div>
+            <div class="stat-val" style="color: #16a34a;">${approvedCount}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Pending Review</div>
+            <div class="stat-val" style="color: #d97706;">${pendingCount}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Rejected</div>
+            <div class="stat-val" style="color: #dc2626;">${rejectedCount}</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Total Disbursed</div>
+            <div class="stat-val" style="color: #16a34a;">₹${totalPayouts.toLocaleString()}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Submitted</th>
+              <th>Customer</th>
+              <th>Phone</th>
+              <th>Product / Store</th>
+              <th>Entered Code</th>
+              <th>UPI ID</th>
+              <th>Cashback</th>
+              <th>Status</th>
+              <th>Admin Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dataset.map((c) => `
+              <tr>
+                <td style="font-family: monospace; font-weight: bold;">#${c.id}</td>
+                <td>${c.submittedAt}</td>
+                <td style="font-weight: 600;">${c.customerName}</td>
+                <td style="font-family: monospace;">${c.customerMobile}</td>
+                <td>${c.productTitle} <span style="color:#64748b;">(${c.platform})</span></td>
+                <td style="font-family: monospace; font-weight: bold;">${c.specialCode}</td>
+                <td style="font-family: monospace;">${c.upiId}</td>
+                <td style="font-weight: bold; color: #16a34a;">₹${c.cashbackAmount || 150}</td>
+                <td><span class="badge badge-${c.status.toLowerCase()}">${c.status}</span></td>
+                <td style="color: #64748b;">${c.adminNote || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <span>TBC WMS System-Generated Audit Document</span>
+          <span>Confidential • Authorized Auditors & Admins Only</span>
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+
+    if (onNotify) {
+      onNotify('Audit PDF Generated', `PDF preview opened for ${dataset.length} records. Save as PDF or print.`, 'success');
+    }
+    setShowExportModal(false);
+  };
+
   return (
     <div className="space-y-8">
       {/* Executive Header Banner */}
@@ -219,22 +420,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>+ Add Offer Product</span>
-          </button>
-
-          {/* Prominent Export CSV for Auditing & Record-Keeping */}
+          {/* Prominent Export CSV / PDF for Auditing & Record-Keeping */}
           <button
             onClick={() => setShowExportModal(true)}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-950/40 transition flex items-center gap-2 cursor-pointer group"
-            title="Export Claims CSV for Auditing and Record-Keeping"
+            title="Export Claims CSV & PDF Audit Reports"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-100 group-hover:scale-110 transition-transform" />
-            <span>Export Audit CSV</span>
+            <span>Export Audit Report (CSV / PDF)</span>
             <span className="bg-emerald-800/80 text-emerald-200 text-[10px] px-1.5 py-0.5 rounded-md font-mono">
               {claims.length}
             </span>
@@ -251,10 +444,313 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
+      {/* Admin Module Navigation Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setActiveSection('all')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeSection === 'all'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <span>Overview & All</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSection('products')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeSection === 'products'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Package className="w-4 h-4" />
+            <span>Listed Offer Products ({products.length})</span>
+            <span className="bg-emerald-500/20 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+              {activeProductsCount} Active
+            </span>
+            {inactiveProductsCount > 0 && (
+              <span className="bg-slate-200 text-slate-700 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+                {inactiveProductsCount} Inactive
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveSection('claims')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeSection === 'claims'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>Customer Claims Queue ({claims.length})</span>
+            <span className="bg-amber-500/20 text-amber-800 text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+              {claims.filter((c) => c.status === 'Pending').length} Pending
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* 📦 Listed Offer Products Management Section (jokhon admin a login korbo listed product guli show koraw) */}
+      {(activeSection === 'all' || activeSection === 'products') && (
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+          {/* Header */}
+          <div className="p-6 border-b border-slate-100 flex flex-wrap justify-between items-center gap-4 bg-gradient-to-r from-slate-50 to-white">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                  <Package className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Listed Offer Products Catalogue
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Click <strong>Active / Inactive</strong> button to toggle customer visibility for each product.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Product Toolbar: Search, Status Filter, Add */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Product Search */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Search title, code, platform..."
+                  className="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-52 bg-white"
+                />
+                {productSearch && (
+                  <button
+                    onClick={() => setProductSearch('')}
+                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Status Filter (All / Active / Inactive) */}
+              <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                <button
+                  onClick={() => setProductStatusFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+                    productStatusFilter === 'all'
+                      ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  All ({products.length})
+                </button>
+                <button
+                  onClick={() => setProductStatusFilter('active')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 ${
+                    productStatusFilter === 'active'
+                      ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  Active ({activeProductsCount})
+                </button>
+                <button
+                  onClick={() => setProductStatusFilter('inactive')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 ${
+                    productStatusFilter === 'inactive'
+                      ? 'bg-slate-700 text-white shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                  Inactive ({inactiveProductsCount})
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>+ Add Product</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Product Items Table or Empty State */}
+          {products.length === 0 ? (
+            <div className="p-12 text-center bg-slate-50/50">
+              <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <h4 className="font-bold text-slate-800 text-base">No Offer Products Listed Yet</h4>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+                Click "+ Add Offer Product" above to create Amazon, Flipkart or Blinkit cashback offers with special codes.
+              </p>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ Add Your First Offer Product</span>
+              </button>
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-xs">
+              No products found matching "{productSearch}" under {productStatusFilter} status.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
+                    <th className="p-4">Product Details</th>
+                    <th className="p-4">Platform</th>
+                    <th className="p-4">Special Code</th>
+                    <th className="p-4">Cashback</th>
+                    <th className="p-4">Date Listed</th>
+                    <th className="p-4 text-center">Status Toggle (Active / Inactive)</th>
+                    <th className="p-4 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {filteredProducts.map((prod) => {
+                    const isActive = prod.isActive !== false;
+                    return (
+                      <tr key={prod.id} className="hover:bg-slate-50/80 transition">
+                        {/* Product Info */}
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={prod.image}
+                              alt={prod.title}
+                              className="w-12 h-12 rounded-xl object-cover bg-slate-100 border border-slate-200 shrink-0"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src =
+                                  'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=200&q=80';
+                              }}
+                            />
+                            <div>
+                              <p className="font-bold text-slate-900 leading-snug line-clamp-1">
+                                {prod.title}
+                              </p>
+                              <a
+                                href={prod.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1 mt-0.5"
+                              >
+                                <span>Visit Store Page</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Platform */}
+                        <td className="p-4">
+                          <span
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold border inline-block ${
+                              prod.platform === 'Amazon'
+                                ? 'bg-amber-50 text-amber-900 border-amber-200'
+                                : prod.platform === 'Flipkart'
+                                ? 'bg-blue-50 text-blue-900 border-blue-200'
+                                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                            }`}
+                          >
+                            {prod.platform}
+                          </span>
+                        </td>
+
+                        {/* Special Code */}
+                        <td className="p-4">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-indigo-950 bg-indigo-50 border border-indigo-200/80 px-2.5 py-1 rounded-lg">
+                              {prod.code}
+                            </span>
+                            <button
+                              onClick={() => handleCopyProductCode(prod.code)}
+                              className="p-1 text-slate-400 hover:text-indigo-600 transition cursor-pointer"
+                              title="Copy Code"
+                            >
+                              {copiedCode === prod.code ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* Cashback */}
+                        <td className="p-4">
+                          <span className="font-black text-emerald-600 font-mono text-sm">
+                            ₹{prod.cashbackAmount || 150}
+                          </span>
+                        </td>
+
+                        {/* Date */}
+                        <td className="p-4 text-slate-500 font-mono text-[11px]">
+                          {prod.createdAt}
+                        </td>
+
+                        {/* Active / Inactive Toggle Button */}
+                        <td className="p-4 text-center">
+                          <button
+                            onClick={() => onToggleProductStatus(prod.id)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-2 cursor-pointer shadow-2xs ${
+                              isActive
+                                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 ring-1 ring-emerald-200'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-300'
+                            }`}
+                            title={isActive ? 'Click to set Inactive (hide from customers)' : 'Click to set Active (show to customers)'}
+                          >
+                            {isActive ? (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span>Active</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                                <span>Inactive</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="p-4 text-center">
+                          <button
+                            onClick={() => onDeleteProduct(prod.id)}
+                            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                            title="Delete this product"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Recharts Analytics Summary Section */}
-      <AdminAnalyticsSummary claims={claims} />
+      {(activeSection === 'all' || activeSection === 'claims') && (
+        <AdminAnalyticsSummary claims={claims} />
+      )}
 
       {/* Customer Claim Verification & Approval Panel Table */}
+      {(activeSection === 'all' || activeSection === 'claims') && (
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Table Filters & Search Header */}
         <div className="p-6 border-b border-slate-100 flex flex-wrap justify-between items-center gap-4">
@@ -578,6 +1074,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </table>
         </div>
       </div>
+      )}
 
       {/* Add Offer Product Modal */}
       {showAddModal && (
@@ -793,13 +1290,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </p>
                 </div>
 
-                <button
-                  onClick={() => exportClaimsToCSV(claims, 'Full_Audit_Trail')}
-                  className="mt-3.5 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-md shadow-indigo-200 transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download Complete Audit CSV ({claims.length} Records)</span>
-                </button>
+                <div className="flex gap-2.5 mt-3.5 flex-wrap sm:flex-nowrap">
+                  <button
+                    onClick={() => exportClaimsToCSV(claims, 'Full_Audit_Trail')}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-md shadow-emerald-200 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Download CSV (.csv)</span>
+                  </button>
+                  <button
+                    onClick={() => exportClaimsToPDF(claims, 'Full_Audit_Trail')}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-md shadow-indigo-200 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>Download PDF (.pdf)</span>
+                  </button>
+                </div>
               </div>
 
               {/* Option 2: Filtered Dataset */}
@@ -819,13 +1325,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </p>
                 </div>
 
-                <button
-                  onClick={() => exportClaimsToCSV(filteredClaims, `Filtered_${activeFilter}`)}
-                  className="mt-3.5 w-full bg-slate-900 hover:bg-black text-white font-bold py-2.5 rounded-xl text-xs shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-emerald-400" />
-                  <span>Download Filtered CSV ({filteredClaims.length} Records)</span>
-                </button>
+                <div className="flex gap-2.5 mt-3.5 flex-wrap sm:flex-nowrap">
+                  <button
+                    onClick={() => exportClaimsToCSV(filteredClaims, `Filtered_${activeFilter}`)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                    <span>Download Filtered CSV</span>
+                  </button>
+                  <button
+                    onClick={() => exportClaimsToPDF(filteredClaims, `Filtered_${activeFilter}`)}
+                    className="flex-1 bg-indigo-900 hover:bg-indigo-950 text-white font-bold py-2.5 px-3 rounded-xl text-xs shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4 text-indigo-300" />
+                    <span>Download Filtered PDF</span>
+                  </button>
+                </div>
               </div>
 
               {/* Audit Fields Summary Checklist */}

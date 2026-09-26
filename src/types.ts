@@ -11,6 +11,7 @@ export interface Product {
   price?: number;
   description?: string;
   createdAt: string;
+  isActive?: boolean; // Active / Inactive toggle
 }
 
 export type ClaimStatus = 'Pending' | 'Approved' | 'Rejected';

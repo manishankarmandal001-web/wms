@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Product, Claim, ClaimStatus, ToastNotification } from './types';
+import { Shield } from 'lucide-react';
 import {
   INITIAL_PRODUCTS,
   INITIAL_CLAIMS,
@@ -44,11 +45,10 @@ export default function App() {
   });
 
   const [currentView, setCurrentView] = useState<
-    'customer-login' | 'customer-signup' | 'customer-portal' | 'admin-login' | 'admin-dashboard'
+    'customer-login' | 'customer-portal' | 'admin-login' | 'admin-dashboard'
   >(() => {
     if (currentUser?.type === 'admin') return 'admin-dashboard';
-    if (currentUser?.type === 'customer') return 'customer-portal';
-    return 'customer-login';
+    return 'customer-portal'; // Default to customer-portal so products are shown first!
   });
 
   // Modal states
@@ -133,10 +133,36 @@ export default function App() {
     const newProduct: Product = {
       ...newProdData,
       id: Date.now(),
-      createdAt: new Date().toISOString().split('T')[0]
+      createdAt: new Date().toISOString().split('T')[0],
+      isActive: true
     };
     setProducts((prev) => [newProduct, ...prev]);
-    addToast('Product Added', `"${newProduct.title}" is now available for customers.`);
+    addToast('Product Added', `"${newProduct.title}" is now available for customers.`, 'success');
+  };
+
+  const handleToggleProductStatus = (productId: string | number) => {
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p.id === productId) {
+          const nextActive = p.isActive === false ? true : false;
+          addToast(
+            nextActive ? 'Product Activated' : 'Product Inactivated',
+            `"${p.title}" is now ${nextActive ? 'Active (Live for customers)' : 'Inactive (Hidden from customers)'}.`,
+            nextActive ? 'success' : 'info'
+          );
+          return { ...p, isActive: nextActive };
+        }
+        return p;
+      })
+    );
+  };
+
+  const handleDeleteProduct = (productId: string | number) => {
+    const prod = products.find((p) => p.id === productId);
+    if (window.confirm(`Are you sure you want to delete product "${prod?.title || 'this item'}"?`)) {
+      setProducts((prev) => prev.filter((p) => p.id !== productId));
+      addToast('Product Deleted', `Removed product from catalogue.`, 'info');
+    }
   };
 
   const handleSubmitClaim = (claimData: Omit<Claim, 'id' | 'submittedAt' | 'status'>) => {
@@ -211,7 +237,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 selection:bg-indigo-500 selection:text-white font-sans">
-      {/* Navigation Header */}
+      {/* Navigation Header - showing only "TBC WMS" */}
       <Navbar
         currentUser={currentUser}
         currentView={currentView}
@@ -222,9 +248,8 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {(currentView === 'customer-login' || currentView === 'customer-signup') && (
+        {currentView === 'customer-login' && (
           <CustomerLogin
-            initialMode={currentView === 'customer-signup' ? 'signup' : 'login'}
             onLogin={handleCustomerLogin}
             onSwitchToAdmin={() => setCurrentView('admin-login')}
           />
@@ -237,13 +262,15 @@ export default function App() {
           />
         )}
 
-        {currentView === 'customer-portal' && currentUser && (
+        {currentView === 'customer-portal' && (
           <CustomerPortal
             currentUser={currentUser}
             products={products}
             claims={claims}
             onSubmitClaim={handleSubmitClaim}
             onViewProof={handleViewProof}
+            onLogin={handleCustomerLogin}
+            onLogout={handleLogout}
           />
         )}
 
@@ -252,6 +279,8 @@ export default function App() {
             products={products}
             claims={claims}
             onAddProduct={handleAddProduct}
+            onToggleProductStatus={handleToggleProductStatus}
+            onDeleteProduct={handleDeleteProduct}
             onUpdateClaimStatus={handleUpdateClaimStatus}
             onViewProof={handleViewProof}
             onResetData={handleResetData}
@@ -273,7 +302,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            <span>Customer & Admin Verified Platform</span>
+            <button
+              onClick={() => setCurrentView('admin-login')}
+              className="text-xs text-slate-500 hover:text-slate-900 transition flex items-center gap-1.5 font-semibold cursor-pointer"
+            >
+              <Shield className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Admin Portal Access</span>
+            </button>
           </div>
         </div>
       </footer>

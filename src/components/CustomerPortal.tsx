@@ -16,15 +16,26 @@ import {
   X,
   History,
   ShieldAlert,
-  ArrowUpRight
+  ArrowUpRight,
+  UserCheck,
+  UserPlus,
+  Lock,
+  Mail,
+  Phone,
+  User as UserIcon,
+  ArrowRight,
+  Sparkles,
+  LogOut
 } from 'lucide-react';
 
 interface CustomerPortalProps {
-  currentUser: User;
+  currentUser: User | null;
   products: Product[];
   claims: Claim[];
   onSubmitClaim: (claimData: Omit<Claim, 'id' | 'submittedAt' | 'status'>) => void;
   onViewProof: (claim: Claim, type: 'order' | 'payment' | 'rating') => void;
+  onLogin: (user: User) => void;
+  onLogout?: () => void;
 }
 
 export const CustomerPortal: React.FC<CustomerPortalProps> = ({
@@ -32,11 +43,26 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   products,
   claims,
   onSubmitClaim,
-  onViewProof
+  onViewProof,
+  onLogin,
+  onLogout
 }) => {
   const [activeTab, setActiveTab] = useState<'offers' | 'my-claims'>('offers');
   const [platformFilter, setPlatformFilter] = useState<'All' | MerchantPlatform>('All');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  // Auth modal states (shown when guest clicks to order / submit claim)
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [pendingProductForClaim, setPendingProductForClaim] = useState<Product | null>(null);
+
+  // Auth form fields
+  const [authName, setAuthName] = useState('');
+  const [authMobile, setAuthMobile] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirmPassword, setAuthConfirmPassword] = useState('');
+  const [authError, setAuthError] = useState('');
 
   // Claim modal form states
   const [enteredCode, setEnteredCode] = useState('');
@@ -47,13 +73,18 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   const [formError, setFormError] = useState('');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  // Filter user's claims
-  const userClaims = claims.filter((c) => c.customerMobile === currentUser.mobile);
+  // Filter user's claims safely
+  const userClaims = currentUser
+    ? claims.filter((c) => c.customerMobile === currentUser.mobile)
+    : [];
+
   const totalApprovedEarnings = userClaims
     .filter((c) => c.status === 'Approved')
     .reduce((sum, c) => sum + (c.cashbackAmount || 150), 0);
 
+  // Filter available products (only active products are shown to customers)
   const filteredProducts = products.filter((p) => {
+    if (p.isActive === false) return false;
     if (platformFilter === 'All') return true;
     return p.platform === platformFilter;
   });
@@ -65,6 +96,30 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   };
 
   const handleOpenClaimModal = (product: Product) => {
+    // If not logged in, prompt login/signup first as requested!
+    if (!currentUser) {
+      setPendingProductForClaim(product);
+      setAuthError('');
+      setShowAuthModal(true);
+      return;
+    }
+
+    // Strict rule: Customers cannot order or claim the same product twice
+    const alreadyClaimed = claims.some(
+      (c) =>
+        c.customerMobile === currentUser.mobile &&
+        (c.productId === product.id ||
+          c.productTitle.trim().toLowerCase() === product.title.trim().toLowerCase() ||
+          c.specialCode.trim().toUpperCase() === product.code.trim().toUpperCase())
+    );
+
+    if (alreadyClaimed) {
+      alert(
+        'Duplicate Order Blocked: You have already submitted an order for this product link. A customer cannot order the same product a second time.'
+      );
+      return;
+    }
+
     setSelectedProduct(product);
     setEnteredCode('');
     setOrderImg(null);
@@ -77,6 +132,130 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   const handleCloseClaimModal = () => {
     setSelectedProduct(null);
     setFormError('');
+  };
+
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+
+    const cleanMobile = authMobile.trim().replace(/\D/g, '');
+    if (cleanMobile.length < 10) {
+      setAuthError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    if (authMode === 'signup') {
+      if (!authName.trim()) {
+        setAuthError('Please enter your full name.');
+        return;
+      }
+
+      if (!authEmail.includes('@') || !authEmail.includes('.')) {
+        setAuthError('Please enter a valid email address.');
+        return;
+      }
+
+      if (authPassword.length < 4) {
+        setAuthError('Password must be at least 4 characters.');
+        return;
+      }
+
+      if (authPassword !== authConfirmPassword) {
+        setAuthError('Passwords do not match.');
+        return;
+      }
+
+      // Check if user has already ordered this product
+      if (pendingProductForClaim) {
+        const alreadyClaimed = claims.some(
+          (c) =>
+            c.customerMobile === cleanMobile &&
+            (c.productId === pendingProductForClaim.id ||
+              c.productTitle.trim().toLowerCase() === pendingProductForClaim.title.trim().toLowerCase() ||
+              c.specialCode.trim().toUpperCase() === pendingProductForClaim.code.trim().toUpperCase())
+        );
+
+        if (alreadyClaimed) {
+          setAuthError(
+            'Duplicate Order Blocked: You have already ordered this product link previously. A customer cannot order the same product twice.'
+          );
+          return;
+        }
+      }
+
+      const loggedUser: User = {
+        name: authName.trim(),
+        mobile: cleanMobile,
+        email: authEmail.trim().toLowerCase(),
+        type: 'customer'
+      };
+
+      onLogin(loggedUser);
+      setShowAuthModal(false);
+
+      // Instantly open the claim modal for the product they wanted!
+      if (pendingProductForClaim) {
+        setSelectedProduct(pendingProductForClaim);
+        setPendingProductForClaim(null);
+        setEnteredCode('');
+        setOrderImg(null);
+        setPaymentImg(null);
+        setRatingImg(null);
+        setUpiId('');
+        setFormError('');
+      }
+    } else {
+      // Login
+      if (!authName.trim()) {
+        setAuthError('Please enter your name or mobile number.');
+        return;
+      }
+
+      if (!authPassword) {
+        setAuthError('Please enter your password.');
+        return;
+      }
+
+      // Check if user has already ordered this product
+      if (pendingProductForClaim) {
+        const alreadyClaimed = claims.some(
+          (c) =>
+            c.customerMobile === cleanMobile &&
+            (c.productId === pendingProductForClaim.id ||
+              c.productTitle.trim().toLowerCase() === pendingProductForClaim.title.trim().toLowerCase() ||
+              c.specialCode.trim().toUpperCase() === pendingProductForClaim.code.trim().toUpperCase())
+        );
+
+        if (alreadyClaimed) {
+          setAuthError(
+            'Duplicate Order Blocked: You have already placed an order claim for this product link previously. A customer cannot order the same product twice.'
+          );
+          return;
+        }
+      }
+
+      const loggedUser: User = {
+        name: authName.trim(),
+        mobile: cleanMobile,
+        email: authEmail.trim().toLowerCase() || `${cleanMobile}@customer.wms`,
+        type: 'customer'
+      };
+
+      onLogin(loggedUser);
+      setShowAuthModal(false);
+
+      // Instantly open the claim modal for the product they wanted!
+      if (pendingProductForClaim) {
+        setSelectedProduct(pendingProductForClaim);
+        setPendingProductForClaim(null);
+        setEnteredCode('');
+        setOrderImg(null);
+        setPaymentImg(null);
+        setRatingImg(null);
+        setUpiId('');
+        setFormError('');
+      }
+    }
   };
 
   const handleFileUpload = (
@@ -122,15 +301,31 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
       return;
     }
 
+    const customerMobile = currentUser?.mobile || authMobile.trim();
+    const alreadyClaimed = claims.some(
+      (c) =>
+        c.customerMobile === customerMobile &&
+        (c.productId === selectedProduct.id ||
+          c.productTitle.trim().toLowerCase() === selectedProduct.title.trim().toLowerCase() ||
+          c.specialCode.trim().toUpperCase() === selectedProduct.code.trim().toUpperCase())
+    );
+
+    if (alreadyClaimed) {
+      setFormError(
+        'Duplicate Order Error: You have already submitted a claim for this product link. A customer cannot order or claim the same product twice.'
+      );
+      return;
+    }
+
     onSubmitClaim({
       productId: selectedProduct.id,
       productTitle: selectedProduct.title,
       platform: selectedProduct.platform,
       systemCode: selectedProduct.code,
       specialCode: trimmedCode,
-      customerName: currentUser.name,
-      customerMobile: currentUser.mobile,
-      customerEmail: currentUser.email,
+      customerName: currentUser?.name || authName.trim() || 'Customer',
+      customerMobile: currentUser?.mobile || authMobile.trim() || '9876543210',
+      customerEmail: currentUser?.email || authEmail.trim() || 'customer@wms.com',
       orderImgData: orderImg,
       paymentImgData: paymentImg,
       ratingImgData: ratingImg,
@@ -156,51 +351,63 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* User Welcome Banner */}
-      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-violet-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl flex flex-wrap justify-between items-center gap-6 relative overflow-hidden">
-        <div className="flex items-center gap-4 sm:gap-5 z-10">
-          <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center font-black text-2xl text-indigo-200 border border-white/20 shadow-inner">
-            <span>{currentUser.name.charAt(0).toUpperCase()}</span>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-2xl sm:text-3xl font-black text-white">{currentUser.name}</h2>
-              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs px-2.5 py-0.5 rounded-full font-semibold">
-                ● Active Customer
-              </span>
+      {/* Logged in Customer Status Bar (only shown when customer is logged in) */}
+      {currentUser && (
+        <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-violet-900 text-white p-5 sm:p-6 rounded-3xl shadow-md flex flex-wrap justify-between items-center gap-4 relative overflow-hidden">
+          <div className="flex items-center gap-3.5 z-10">
+            <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center font-black text-xl text-indigo-200 border border-white/20 shadow-inner">
+              <span>{currentUser.name.charAt(0).toUpperCase()}</span>
             </div>
-            <p className="text-xs sm:text-sm text-indigo-200 flex flex-wrap items-center gap-3 mt-1.5 font-medium">
-              <span>📱 {currentUser.mobile}</span>
-              <span>•</span>
-              <span>✉️ {currentUser.email}</span>
-            </p>
-          </div>
-        </div>
-
-        {/* User stats summary */}
-        <div className="flex items-center gap-3 z-10 flex-wrap">
-          <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/15 text-center">
-            <span className="text-[10px] text-indigo-200 uppercase tracking-wider block font-bold">
-              Submitted Claims
-            </span>
-            <span className="text-xl font-black text-white">{userClaims.length}</span>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl font-black text-white">{currentUser.name}</h2>
+                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[11px] px-2 py-0.5 rounded-full font-semibold">
+                  ● Active Customer
+                </span>
+              </div>
+              <p className="text-xs text-indigo-200 flex flex-wrap items-center gap-2 mt-0.5 font-medium">
+                <span>📱 {currentUser.mobile}</span>
+                <span>•</span>
+                <span>✉ {currentUser.email}</span>
+              </p>
+            </div>
           </div>
 
-          <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/15 text-center">
-            <span className="text-[10px] text-indigo-200 uppercase tracking-wider block font-bold">
-              Total Cashback Earned
-            </span>
-            <span className="text-xl font-black text-emerald-400">₹{totalApprovedEarnings}</span>
+          {/* User stats summary & Logout */}
+          <div className="flex items-center gap-3 z-10 flex-wrap">
+            <div className="bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-xl border border-white/15 text-center">
+              <span className="text-[10px] text-indigo-200 uppercase tracking-wider block font-bold">
+                Claims
+              </span>
+              <span className="text-base font-black text-white">{userClaims.length}</span>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-xl border border-white/15 text-center">
+              <span className="text-[10px] text-indigo-200 uppercase tracking-wider block font-bold">
+                Cashback Earned
+              </span>
+              <span className="text-base font-black text-emerald-400">₹{totalApprovedEarnings}</span>
+            </div>
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="px-3.5 py-2 bg-white/10 hover:bg-rose-500/20 text-white hover:text-rose-200 rounded-xl text-xs font-semibold border border-white/20 transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
+              </button>
+            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Tabs & Filter Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div className="flex gap-2 bg-slate-200/70 p-1.5 rounded-2xl">
           <button
             onClick={() => setActiveTab('offers')}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'offers'
                 ? 'bg-white text-indigo-700 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
@@ -209,13 +416,13 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
             <ShoppingBag className="w-4 h-4" />
             <span>Cashback Offer Products</span>
             <span className="bg-indigo-100 text-indigo-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
-              {products.length}
+              {filteredProducts.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveTab('my-claims')}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 ${
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'my-claims'
                 ? 'bg-white text-indigo-700 shadow-sm'
                 : 'text-slate-600 hover:text-slate-900'
@@ -223,9 +430,11 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
           >
             <History className="w-4 h-4" />
             <span>My Submitted Claims</span>
-            <span className="bg-slate-200 text-slate-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
-              {userClaims.length}
-            </span>
+            {currentUser && (
+              <span className="bg-slate-200 text-slate-800 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                {userClaims.length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -236,7 +445,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
               <button
                 key={p}
                 onClick={() => setPlatformFilter(p)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                   platformFilter === p
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -249,13 +458,12 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
         )}
       </div>
 
-      {/* Tab 1: Offers Grid */}
+      {/* Tab 1: Offers Grid (Shown First to All Customers!) */}
       {activeTab === 'offers' && (
         <div className="space-y-4">
           <div className="flex justify-between items-center text-xs text-slate-500">
             <p>
-              Buy the product directly from the platform, enter the Special Code, and submit the 3
-              screenshots to get your cashback refund.
+              Select any product, buy directly from the store link, then click <strong>"Submit Order Claim"</strong> to claim your cashback refund.
             </p>
           </div>
 
@@ -270,9 +478,11 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredProducts.map((prod) => {
-                const existingClaim = claims.find(
-                  (c) => c.customerMobile === currentUser.mobile && c.productId === prod.id
-                );
+                const existingClaim = currentUser
+                  ? claims.find(
+                      (c) => c.customerMobile === currentUser.mobile && c.productId === prod.id
+                    )
+                  : null;
 
                 return (
                   <div
@@ -329,7 +539,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                           </div>
                           <button
                             onClick={() => handleCopyCode(prod.code)}
-                            className="p-1.5 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-100 rounded-lg transition"
+                            className="p-1.5 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-100 rounded-lg transition cursor-pointer"
                             title="Copy Code"
                           >
                             {copiedCode === prod.code ? (
@@ -406,12 +616,32 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
             <div className="p-6 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900">Your Submitted Claims Tracker</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Track the status of your cashback claims submitted from your mobile (
-                {currentUser.mobile})
+                {currentUser
+                  ? `Track the status of your cashback claims submitted from your mobile (${currentUser.mobile})`
+                  : 'Log in to track the status of your cashback claims and refund payouts'}
               </p>
             </div>
 
-            {userClaims.length === 0 ? (
+            {!currentUser ? (
+              <div className="text-center py-16 px-4">
+                <ShieldAlert className="w-12 h-12 text-indigo-400 mx-auto mb-3" />
+                <h4 className="text-base font-bold text-slate-800">Login Required to View Claims</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-4">
+                  Please log in or sign up with your mobile number to view all claims submitted by you.
+                </p>
+                <button
+                  onClick={() => {
+                    setPendingProductForClaim(null);
+                    setAuthError('');
+                    setShowAuthModal(true);
+                  }}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition cursor-pointer inline-flex items-center gap-2"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Login / Sign Up</span>
+                </button>
+              </div>
+            ) : userClaims.length === 0 ? (
               <div className="text-center py-16 px-4">
                 <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <h4 className="text-base font-bold text-slate-700">No claims submitted yet</h4>
@@ -421,7 +651,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                 </p>
                 <button
                   onClick={() => setActiveTab('offers')}
-                  className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition"
+                  className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition cursor-pointer"
                 >
                   Browse Offer Products
                 </button>
@@ -449,10 +679,10 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                             {claim.submittedAt}
                           </span>
                         </td>
-                        <td className="p-4">
-                          <p className="font-bold text-slate-800">{claim.productTitle}</p>
-                          <span className="inline-block mt-0.5 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 border text-slate-700">
-                            {claim.platform}
+                        <td className="p-4 font-bold text-slate-900 max-w-xs">
+                          {claim.productTitle}
+                          <span className="block text-[11px] text-slate-400 font-normal">
+                            Store: {claim.platform}
                           </span>
                         </td>
                         <td className="p-4 font-mono font-bold text-slate-700">
@@ -462,7 +692,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => onViewProof(claim, 'order')}
-                              className="w-8 h-8 rounded-lg overflow-hidden border border-slate-300 hover:scale-110 transition shadow-sm"
+                              className="w-8 h-8 rounded-lg overflow-hidden border border-slate-300 hover:scale-110 transition shadow-sm cursor-pointer"
                               title="Inspect Order Screenshot"
                             >
                               <img
@@ -473,7 +703,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                             </button>
                             <button
                               onClick={() => onViewProof(claim, 'payment')}
-                              className="w-8 h-8 rounded-lg overflow-hidden border border-slate-300 hover:scale-110 transition shadow-sm"
+                              className="w-8 h-8 rounded-lg overflow-hidden border border-slate-300 hover:scale-110 transition shadow-sm cursor-pointer"
                               title="Inspect Payment Receipt"
                             >
                               <img
@@ -484,8 +714,8 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                             </button>
                             <button
                               onClick={() => onViewProof(claim, 'rating')}
-                              className="w-8 h-8 rounded-lg overflow-hidden border border-slate-300 hover:scale-110 transition shadow-sm"
-                              title="Inspect Rating Review"
+                              className="w-8 h-8 rounded-lg overflow-hidden border border-slate-300 hover:scale-110 transition shadow-sm cursor-pointer"
+                              title="Inspect Rating Review Proof"
                             >
                               <img
                                 src={claim.ratingImgData}
@@ -495,34 +725,38 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                             </button>
                           </div>
                         </td>
-                        <td className="p-4 font-mono font-bold text-slate-800">{claim.upiId}</td>
+                        <td className="p-4 font-mono text-slate-600 font-semibold">
+                          {claim.upiId}
+                        </td>
                         <td className="p-4">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex flex-col gap-1">
                             <span
-                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              className={`px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 w-fit ${
                                 claim.status === 'Approved'
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  ? 'bg-emerald-100 text-emerald-800'
                                   : claim.status === 'Rejected'
-                                  ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                  : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-amber-100 text-amber-800'
                               }`}
                             >
+                              {claim.status === 'Approved' && (
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              )}
+                              {claim.status === 'Pending' && <Clock className="w-3.5 h-3.5" />}
+                              {claim.status === 'Rejected' && <XCircle className="w-3.5 h-3.5" />}
                               {claim.status}
                             </span>
+                            <span className="font-bold text-slate-900 text-xs">
+                              ₹{claim.cashbackAmount || 150} Cashback
+                            </span>
                           </div>
-                          {claim.status === 'Approved' && (
-                            <span className="block text-[11px] font-bold text-emerald-600 mt-1">
-                              +₹{claim.cashbackAmount || 150} Credited
-                            </span>
-                          )}
                         </td>
-                        <td className="p-4 text-slate-600 max-w-xs">
-                          {claim.adminNote ? (
-                            <span className="text-[11px] italic bg-slate-100 px-2 py-1 rounded-lg block">
-                              "{claim.adminNote}"
+                        <td className="p-4 text-slate-500 max-w-xs text-xs">
+                          {claim.adminNote || 'Under verification queue.'}
+                          {claim.processedAt && (
+                            <span className="block text-[10px] text-slate-400 mt-0.5">
+                              Processed: {claim.processedAt}
                             </span>
-                          ) : (
-                            <span className="text-slate-400 text-[11px]">—</span>
                           )}
                         </td>
                       </tr>
@@ -535,7 +769,190 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
         </div>
       )}
 
-      {/* Claim Submission Modal */}
+      {/* 🔐 Customer Login / Sign Up Modal (Shown when customer clicks to order/claim) */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+          <div className="bg-white max-w-md w-full rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-6 transform transition-all">
+            {/* Modal Top Bar */}
+            <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-indigo-400" />
+                <h3 className="font-bold text-base">
+                  {authMode === 'login' ? 'Customer Login' : 'Create Customer Account'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowAuthModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {/* Product Context Banner */}
+              {pendingProductForClaim && (
+                <div className="bg-indigo-50/80 border border-indigo-200 rounded-2xl p-3.5 mb-5 flex items-center gap-3">
+                  <img
+                    src={pendingProductForClaim.image}
+                    alt={pendingProductForClaim.title}
+                    className="w-12 h-12 rounded-xl object-cover border border-indigo-200 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">
+                      Claiming Cashback For:
+                    </span>
+                    <h4 className="font-bold text-xs text-slate-900 truncate">
+                      {pendingProductForClaim.title}
+                    </h4>
+                    <span className="text-xs font-black text-emerald-600">
+                      ₹{pendingProductForClaim.cashbackAmount} Cashback on {pendingProductForClaim.platform}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Login / Sign Up Toggle Tabs */}
+              <div className="flex bg-slate-100 p-1.5 rounded-2xl mb-5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('login');
+                    setAuthError('');
+                  }}
+                  className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    authMode === 'login'
+                      ? 'bg-white text-indigo-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Log In</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('signup');
+                    setAuthError('');
+                  }}
+                  className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    authMode === 'signup'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Sign Up</span>
+                </button>
+              </div>
+
+              {authError && (
+                <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl font-medium">
+                  {authError}
+                </div>
+              )}
+
+              {/* Auth Form */}
+              <form onSubmit={handleAuthSubmit} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                    <UserIcon className="w-3.5 h-3.5 text-indigo-600" /> Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={authName}
+                    onChange={(e) => setAuthName(e.target.value)}
+                    placeholder="Enter your name"
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-indigo-600" /> 10-Digit Mobile Number *
+                  </label>
+                  <input
+                    type="tel"
+                    value={authMobile}
+                    onChange={(e) => setAuthMobile(e.target.value)}
+                    placeholder="9876543210"
+                    maxLength={10}
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                  />
+                </div>
+
+                {authMode === 'signup' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-indigo-600" /> Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      required
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-indigo-600" /> Password *
+                  </label>
+                  <input
+                    type="password"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                {authMode === 'signup' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-indigo-600" /> Confirm Password *
+                    </label>
+                    <input
+                      type="password"
+                      value={authConfirmPassword}
+                      onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl text-xs sm:text-sm shadow-lg shadow-indigo-200 transition flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {authMode === 'login' ? (
+                    <>
+                      <span>Log In & Continue Claim</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="w-4 h-4" />
+                      <span>Create Account & Continue Claim</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Claim Submission Modal (Appears directly after authentication or for logged in customers) */}
       {selectedProduct && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
           <div className="bg-white max-w-xl w-full rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-6 transform transition-all">
@@ -551,7 +968,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
               </div>
               <button
                 onClick={handleCloseClaimModal}
-                className="text-indigo-200 hover:text-white p-1 rounded-lg transition"
+                className="text-indigo-200 hover:text-white p-1 rounded-lg transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -591,7 +1008,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                   <button
                     type="button"
                     onClick={() => setEnteredCode(selectedProduct.code)}
-                    className="text-[11px] text-indigo-600 font-bold hover:underline"
+                    className="text-[11px] text-indigo-600 font-bold hover:underline cursor-pointer"
                   >
                     Auto-Fill ({selectedProduct.code})
                   </button>
@@ -640,7 +1057,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => setOrderImg(null)}
-                        className="p-1 text-slate-400 hover:text-rose-600"
+                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                         title="Remove"
                       >
                         <X className="w-4 h-4" />
@@ -652,7 +1069,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                 {/* 2. Payment Screenshot */}
                 <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                   <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
-                    <span>2. Payment Screenshot File *</span>
+                    <span>2. Payment Confirmation Screenshot File *</span>
                     {paymentImg && (
                       <span className="text-emerald-600 font-bold text-[11px]">✓ Attached</span>
                     )}
@@ -672,14 +1089,14 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                       />
                       <div className="flex-1 min-w-0">
                         <span className="text-xs font-bold text-emerald-600 block">
-                          ✓ Payment Receipt Attached
+                          ✓ Payment Screenshot Attached
                         </span>
                         <span className="text-[10px] text-slate-400">Ready for review</span>
                       </div>
                       <button
                         type="button"
                         onClick={() => setPaymentImg(null)}
-                        className="p-1 text-slate-400 hover:text-rose-600"
+                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                         title="Remove"
                       >
                         <X className="w-4 h-4" />
@@ -718,7 +1135,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                       <button
                         type="button"
                         onClick={() => setRatingImg(null)}
-                        className="p-1 text-slate-400 hover:text-rose-600"
+                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                         title="Remove"
                       >
                         <X className="w-4 h-4" />
@@ -748,7 +1165,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                 <button
                   type="button"
                   onClick={handleCloseClaimModal}
-                  className="flex-1 px-4 py-3 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
+                  className="flex-1 px-4 py-3 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition cursor-pointer"
                 >
                   Cancel
                 </button>
