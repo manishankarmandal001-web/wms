@@ -1,26 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { User, Product, Claim, ClaimStatus, ToastNotification } from './types';
-import { Shield } from 'lucide-react';
 import {
   INITIAL_PRODUCTS,
   INITIAL_CLAIMS,
   STORAGE_KEYS
 } from './data/initialData';
-import { Navbar } from './components/Navbar';
-import { CustomerLogin } from './components/CustomerLogin';
-import { CustomerPortal } from './components/CustomerPortal';
-import { AdminLogin } from './components/AdminLogin';
-import { AdminDashboard } from './components/AdminDashboard';
+import { CustomerApp } from './apps/CustomerApp';
+import { AdminApp } from './apps/AdminApp';
 import { LightboxModal } from './components/LightboxModal';
 import { VercelDeployGuideModal } from './components/VercelDeployGuideModal';
 import { Toast } from './components/Toast';
-import { PWAInstallBanner } from './components/PWAInstallBanner';
-import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
   const [customerTab, setCustomerTab] = useState<'offers' | 'my-claims'>('offers');
-  // Initialize state with localStorage fallbacks
+  const [customerView, setCustomerView] = useState<'customer-portal' | 'customer-login'>('customer-portal');
+
+  // Shared Persistent Products State
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
@@ -34,6 +30,7 @@ export default function App() {
     }
   });
 
+  // Shared Persistent Claims State
   const [claims, setClaims] = useState<Claim[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CLAIMS);
@@ -43,23 +40,19 @@ export default function App() {
     }
   });
 
-  // Sync across different browser tabs/windows in real time
+  // Sync state in real time across different browser tabs/windows
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === STORAGE_KEYS.PRODUCTS && e.newValue) {
         try {
           const updated = JSON.parse(e.newValue);
-          if (Array.isArray(updated)) {
-            setProducts(updated);
-          }
+          if (Array.isArray(updated)) setProducts(updated);
         } catch {}
       }
       if (e.key === STORAGE_KEYS.CLAIMS && e.newValue) {
         try {
           const updated = JSON.parse(e.newValue);
-          if (Array.isArray(updated)) {
-            setClaims(updated);
-          }
+          if (Array.isArray(updated)) setClaims(updated);
         } catch {}
       }
     };
@@ -68,6 +61,25 @@ export default function App() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
+  // Save products on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+    } catch (e) {
+      console.error('Error saving products to localStorage', e);
+    }
+  }, [products]);
+
+  // Save claims on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(claims));
+    } catch (e) {
+      console.error('Error saving claims to localStorage', e);
+    }
+  }, [claims]);
+
+  // Current logged in user (customer or admin)
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.USER);
@@ -77,8 +89,21 @@ export default function App() {
     }
   });
 
-  // Check if current URL or session points to Admin access
-  const checkIsAdminRoute = () => {
+  // Save user session
+  useEffect(() => {
+    try {
+      if (currentUser) {
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.USER);
+      }
+    } catch (e) {
+      console.error('Error updating current user in localStorage', e);
+    }
+  }, [currentUser]);
+
+  // Check if current route is dedicated to Admin App
+  const checkIsAdminApp = () => {
     if (typeof window === 'undefined') return false;
     try {
       const search = window.location.search.toLowerCase();
@@ -96,46 +121,26 @@ export default function App() {
     }
   };
 
-  const [currentView, setCurrentView] = useState<
-    'customer-login' | 'customer-portal' | 'admin-login' | 'admin-dashboard'
-  >(() => {
-    if (checkIsAdminRoute()) {
-      try {
-        const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
-        if (savedUser) {
-          const user = JSON.parse(savedUser);
-          if (user.type === 'admin') return 'admin-dashboard';
-        }
-      } catch {}
-      return 'admin-login';
-    }
-    if (currentUser?.type === 'admin') return 'admin-dashboard';
-    return 'customer-portal'; // Default to customer-portal so products are shown first!
+  const [activeApp, setActiveApp] = useState<'customer' | 'admin'>(() => {
+    return checkIsAdminApp() ? 'admin' : 'customer';
   });
 
-  // Listen for direct secret admin link in URL: ?admin=true or #admin or /admin
+  // Listen for direct URL navigation changes
   useEffect(() => {
     const handleUrlChange = () => {
-      if (checkIsAdminRoute()) {
-        try {
-          const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
-          const isAdmin = savedUser ? JSON.parse(savedUser).type === 'admin' : false;
-          setCurrentView(isAdmin ? 'admin-dashboard' : 'admin-login');
-        } catch {
-          setCurrentView('admin-login');
-        }
-      }
+      const isAdmin = checkIsAdminApp();
+      setActiveApp(isAdmin ? 'admin' : 'customer');
     };
 
     handleUrlChange();
     window.addEventListener('popstate', handleUrlChange);
     window.addEventListener('hashchange', handleUrlChange);
 
-    // Also listen for Ctrl+Shift+A for the owner
+    // Keyboard shortcut for owner: Ctrl+Shift+A opens Admin App
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
-        handleNavigate('admin-login');
+        switchToAdminApp();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -145,110 +150,74 @@ export default function App() {
       window.removeEventListener('hashchange', handleUrlChange);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [currentUser]);
+  }, []);
 
-  const handleNavigate = (view: 'customer-portal' | 'admin-dashboard' | 'customer-login' | 'admin-login') => {
-    setCurrentView(view);
+  const switchToAdminApp = () => {
+    setActiveApp('admin');
     if (typeof window !== 'undefined') {
       try {
+        sessionStorage.setItem('wms_admin_session', 'true');
         const url = new URL(window.location.href);
-        if (view === 'admin-dashboard' || view === 'admin-login') {
-          sessionStorage.setItem('wms_admin_session', 'true');
-          url.searchParams.set('admin', 'true');
-          url.hash = 'admin';
-          window.history.pushState({}, '', url.toString());
-        } else if (view === 'customer-portal' || view === 'customer-login') {
-          sessionStorage.removeItem('wms_admin_session');
-          url.searchParams.delete('admin');
-          if (url.hash.includes('admin')) {
-            url.hash = '';
-          }
-          window.history.pushState({}, '', url.toString());
-        }
-      } catch (e) {
-        console.error('URL push error', e);
-      }
+        url.hash = 'admin';
+        window.history.pushState({}, '', url.toString());
+      } catch {}
     }
   };
 
-  // Modal states
-  const [inspectingClaim, setInspectingClaim] = useState<Claim | null>(null);
-  const [inspectingType, setInspectingType] = useState<'order' | 'payment' | 'rating'>('order');
-  const [isDeployGuideOpen, setIsDeployGuideOpen] = useState(false);
+  const switchToCustomerApp = () => {
+    setActiveApp('customer');
+    setCustomerView('customer-portal');
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('wms_admin_session');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('admin');
+        url.searchParams.delete('app');
+        if (url.hash.includes('admin')) {
+          url.hash = '';
+        }
+        window.history.pushState({}, '', url.toString());
+      } catch {}
+    }
+  };
 
-  // Toasts
+  // Toast System
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
-
-  // Sync products to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-    } catch (e) {
-      console.error('Storage quota exceeded for products', e);
-    }
-  }, [products]);
-
-  // Sync claims to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(claims));
-    } catch (e) {
-      console.error('Storage quota exceeded for claims', e);
-    }
-  }, [claims]);
-
-  // Sync user to localStorage
-  useEffect(() => {
-    try {
-      if (currentUser) {
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.USER);
-      }
-    } catch (e) {
-      console.error('Storage error', e);
-    }
-  }, [currentUser]);
-
-  const addToast = (title: string, message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const addToast = (
+    title: string,
+    message: string,
+    type: 'success' | 'error' | 'info' = 'success'
+  ) => {
     const id = Date.now().toString() + Math.random().toString().slice(2, 6);
     setToasts((prev) => [...prev, { id, title, message, type }]);
-
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4500);
   };
-
   const handleDismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const handleCustomerLogin = (user: User, isNewRegistration: boolean = false) => {
+  // Modal inspection states
+  const [inspectingClaim, setInspectingClaim] = useState<Claim | null>(null);
+  const [inspectingType, setInspectingType] = useState<'order' | 'payment' | 'rating'>('order');
+  const [isDeployGuideOpen, setIsDeployGuideOpen] = useState(false);
+
+  // Handlers for Authentication
+  const handleCustomerLogin = (user: User) => {
     setCurrentUser(user);
-    setCurrentView('customer-portal');
-    if (isNewRegistration) {
-      addToast(
-        'Account Created!',
-        `Welcome to WMS Portal, ${user.name}! You can now claim cashback rewards.`,
-        'success'
-      );
-    } else {
-      addToast('Login Successful', `Welcome back, ${user.name}!`);
-    }
+    setCustomerView('customer-portal');
+    addToast('Welcome!', `Logged in successfully as ${user.name}`);
   };
 
   const handleAdminLogin = (user: User) => {
     setCurrentUser(user);
-    handleNavigate('admin-dashboard');
-    addToast('Admin Authenticated', 'Access granted to WMS Executive Console.');
+    addToast('Admin Authenticated', `Welcome to Admin Console, ${user.name}`);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    handleNavigate('customer-portal');
-    addToast('Logged Out', 'You have been safely logged out.', 'info');
+    addToast('Signed Out', 'You have been safely signed out.', 'info');
   };
 
+  // Product Operations
   const handleAddProduct = (newProdData: Omit<Product, 'id' | 'createdAt'>) => {
     const newProduct: Product = {
       ...newProdData,
@@ -257,27 +226,27 @@ export default function App() {
       isActive: true
     };
     setProducts((prev) => [newProduct, ...prev]);
-    addToast('Product Added', `"${newProduct.title}" is now available for customers.`, 'success');
+    addToast('Product Added', `"${newProduct.title}" is now live in Customer App.`, 'success');
   };
 
   const handleEditProduct = (updatedProduct: Product) => {
     setProducts((prev) =>
       prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
     );
-    addToast('Product Updated', `"${updatedProduct.title}" details have been updated.`, 'success');
+    addToast('Product Updated', `"${updatedProduct.title}" has been updated.`, 'success');
   };
 
   const handleToggleProductStatus = (productId: string | number) => {
     setProducts((prev) =>
       prev.map((p) => {
         if (p.id === productId) {
-          const nextActive = p.isActive === false ? true : false;
+          const updated = !p.isActive;
           addToast(
-            nextActive ? 'Product Activated' : 'Product Inactivated',
-            `"${p.title}" is now ${nextActive ? 'Active (Live for customers)' : 'Inactive (Hidden from customers)'}.`,
-            nextActive ? 'success' : 'info'
+            updated ? 'Deal Activated' : 'Deal Paused',
+            `"${p.title}" is now ${updated ? 'active for customer claims' : 'paused'}.`,
+            'info'
           );
-          return { ...p, isActive: nextActive };
+          return { ...p, isActive: updated };
         }
         return p;
       })
@@ -286,34 +255,24 @@ export default function App() {
 
   const handleDeleteProduct = (productId: string | number) => {
     const prod = products.find((p) => p.id === productId);
-    if (window.confirm(`Are you sure you want to delete product "${prod?.title || 'this item'}"?`)) {
-      setProducts((prev) => prev.filter((p) => p.id !== productId));
-      addToast('Product Deleted', `Removed product from catalogue.`, 'info');
-    }
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    addToast('Product Deleted', `"${prod?.title || 'Item'}" removed from catalog.`, 'info');
   };
 
+  // Claim Operations
   const handleSubmitClaim = (claimData: Omit<Claim, 'id' | 'submittedAt' | 'status'>) => {
-    const now = new Date();
-    const dateFormatted = now.toLocaleString('en-IN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
-
     const newClaim: Claim = {
       ...claimData,
-      id: 1000 + claims.length + 1,
-      status: 'Pending',
-      submittedAt: dateFormatted
+      id: Date.now(),
+      submittedAt: new Date().toISOString(),
+      status: 'Pending'
     };
-
     setClaims((prev) => [newClaim, ...prev]);
+    setCustomerTab('my-claims');
     addToast(
       'Claim Submitted!',
-      'Your screenshot proofs and UPI details have been uploaded for Admin Approval.'
+      'Your order screenshots & cashback claim have been sent for verification.',
+      'success'
     );
   };
 
@@ -341,9 +300,9 @@ export default function App() {
     );
 
     if (newStatus === 'Approved') {
-      addToast('Claim Approved', `Claim #${claimId} verified. Cashback payment released to UPI.`);
+      addToast('Claim Approved', `Claim #${claimId} approved & cashback released.`, 'success');
     } else {
-      addToast('Claim Rejected', `Claim #${claimId} was rejected with remarks recorded.`, 'error');
+      addToast('Claim Rejected', `Claim #${claimId} was marked as rejected.`, 'error');
     }
   };
 
@@ -363,109 +322,47 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 selection:bg-indigo-500 selection:text-white font-sans">
-      <div className="flex flex-col min-h-screen bg-slate-50">
-        {/* PWA Mobile App Install Header Banner */}
-        <PWAInstallBanner />
-
-        {/* Navigation Header */}
-        <Navbar
+    <>
+      {activeApp === 'admin' ? (
+        /* 🛡️ STANDALONE DEDICATED ADMIN APP */
+        <AdminApp
+          products={products}
+          claims={claims}
           currentUser={currentUser}
-          currentView={currentView}
-          onNavigate={handleNavigate}
-          onLogout={handleLogout}
-          onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
+          onAdminLogin={handleAdminLogin}
+          onAdminLogout={handleLogout}
+          onAddProduct={handleAddProduct}
+          onEditProduct={handleEditProduct}
+          onToggleProductStatus={handleToggleProductStatus}
+          onDeleteProduct={handleDeleteProduct}
+          onUpdateClaimStatus={handleUpdateClaimStatus}
+          onViewProof={handleViewProof}
+          onResetData={handleResetData}
+          onNotify={addToast}
+          onOpenCustomerApp={switchToCustomerApp}
         />
-
-        {/* Main Application Container */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-12">
-          {currentView === 'customer-login' && (
-            <CustomerLogin
-              onLogin={handleCustomerLogin}
-            />
-          )}
-
-          {currentView === 'admin-login' && (
-            <AdminLogin
-              onLogin={handleAdminLogin}
-              onSwitchToCustomer={() => handleNavigate('customer-portal')}
-            />
-          )}
-
-          {currentView === 'customer-portal' && (
-            <CustomerPortal
-              currentUser={currentUser}
-              products={products}
-              claims={claims}
-              onSubmitClaim={handleSubmitClaim}
-              onViewProof={handleViewProof}
-              onLogin={handleCustomerLogin}
-              onLogout={handleLogout}
-              externalActiveTab={customerTab}
-              onExternalActiveTabChange={setCustomerTab}
-            />
-          )}
-
-          {currentView === 'admin-dashboard' && (
-            <AdminDashboard
-              products={products}
-              claims={claims}
-              onAddProduct={handleAddProduct}
-              onEditProduct={handleEditProduct}
-              onToggleProductStatus={handleToggleProductStatus}
-              onDeleteProduct={handleDeleteProduct}
-              onUpdateClaimStatus={handleUpdateClaimStatus}
-              onViewProof={handleViewProof}
-              onResetData={handleResetData}
-              onLogout={handleLogout}
-              onNotify={addToast}
-              onSwitchToCustomerPortal={() => handleNavigate('customer-portal')}
-            />
-          )}
-        </main>
-
-        {/* App Footer */}
-        <footer className="bg-white border-t border-slate-200/80 py-5 text-xs text-slate-500 mb-14 md:mb-0">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap justify-between items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-5 rounded-md bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px]">
-                T
-              </div>
-              <span className="font-bold text-slate-700">TBC WMS App</span>
-              <span>•</span>
-              <span className="text-emerald-600 font-semibold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                PWA Ready
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 text-slate-400 font-medium">
-              <span>Verified Direct Cashback & Rewards</span>
-            </div>
-          </div>
-        </footer>
-
-        {/* Modern Mobile App Bottom Navigation Dock */}
-        <MobileBottomNav
-          currentView={currentView}
-          onNavigate={handleNavigate}
+      ) : (
+        /* 🛒 STANDALONE DEDICATED CUSTOMER APP */
+        <CustomerApp
+          products={products}
+          claims={claims}
           currentUser={currentUser}
+          currentView={customerView}
+          onNavigate={(view) => setCustomerView(view)}
           customerTab={customerTab}
-          onSetCustomerTab={(tab) => {
-            setCurrentView('customer-portal');
-            setCustomerTab(tab);
-          }}
+          onSetCustomerTab={setCustomerTab}
+          onCustomerLogin={handleCustomerLogin}
+          onCustomerLogout={handleLogout}
+          onSubmitClaim={handleSubmitClaim}
+          onViewProof={handleViewProof}
+          onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
           onOpenQuickClaim={() => {
-            setCurrentView('customer-portal');
+            setCustomerView('customer-portal');
             setCustomerTab('offers');
             addToast('Choose an Offer', 'Click "Claim Cashback" on any verified product below.', 'info');
           }}
-          claimsCount={currentUser ? claims.filter((c) => c.customerMobile === currentUser.mobile).length : 0}
         />
-
-        {/* Offline Connectivity Status Pill */}
-        <OfflineIndicator />
-      </div>
+      )}
 
       {/* Proof Lightbox Modal */}
       <LightboxModal
@@ -481,8 +378,11 @@ export default function App() {
         onCopyNotice={(msg) => addToast('Copied to Clipboard', msg, 'info')}
       />
 
-      {/* Floating Notifications */}
+      {/* Floating System Notifications */}
       <Toast toasts={toasts} onDismiss={handleDismissToast} />
-    </div>
+
+      {/* Connectivity Status Pill */}
+      <OfflineIndicator />
+    </>
   );
 }
