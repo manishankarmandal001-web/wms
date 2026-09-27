@@ -27,7 +27,8 @@ import {
   Power,
   ShoppingBag,
   ListFilter,
-  Printer
+  Printer,
+  LogOut
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -38,7 +39,8 @@ interface AdminDashboardProps {
   onDeleteProduct: (productId: string | number) => void;
   onUpdateClaimStatus: (claimId: string | number, status: ClaimStatus, adminNote?: string) => void;
   onViewProof: (claim: Claim, type: 'order' | 'payment' | 'rating') => void;
-  onResetData: () => void;
+  onResetData?: () => void;
+  onLogout?: () => void;
   onNotify?: (title: string, message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -51,6 +53,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateClaimStatus,
   onViewProof,
   onResetData,
+  onLogout,
   onNotify
 }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | ClaimStatus>('ALL');
@@ -433,14 +436,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </span>
           </button>
 
-          <button
-            onClick={onResetData}
-            className="px-3 py-2 bg-slate-800/80 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 rounded-xl text-xs font-medium border border-slate-700 transition flex items-center gap-1 cursor-pointer"
-            title="Clear All Products and Claims"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Clear All Data</span>
-          </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="px-4 py-2 bg-rose-600/90 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-950/30 transition flex items-center gap-1.5 cursor-pointer"
+              title="Logout from Admin Console"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Admin Logout</span>
+            </button>
+          )}
         </div>
       </div>
 

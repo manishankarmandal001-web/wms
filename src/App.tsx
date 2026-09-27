@@ -284,6 +284,7 @@ export default function App() {
             onUpdateClaimStatus={handleUpdateClaimStatus}
             onViewProof={handleViewProof}
             onResetData={handleResetData}
+            onLogout={handleLogout}
             onNotify={addToast}
           />
         )}
