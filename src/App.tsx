@@ -84,9 +84,63 @@ export default function App() {
   const [currentView, setCurrentView] = useState<
     'customer-login' | 'customer-portal' | 'admin-login' | 'admin-dashboard'
   >(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      if (search.includes('admin') || hash.includes('admin') || path.endsWith('/admin')) {
+        const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
+        if (savedUser) {
+          try {
+            const user = JSON.parse(savedUser);
+            if (user.type === 'admin') return 'admin-dashboard';
+          } catch {}
+        }
+        return 'admin-login';
+      }
+    }
     if (currentUser?.type === 'admin') return 'admin-dashboard';
     return 'customer-portal'; // Default to customer-portal so products are shown first!
   });
+
+  // Listen for direct secret admin link in URL: ?admin=true or #admin or /admin
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const search = window.location.search;
+      const hash = window.location.hash;
+      const path = window.location.pathname;
+      const isAdminRoute = search.includes('admin') || hash.includes('admin') || path.endsWith('/admin');
+      
+      if (isAdminRoute) {
+        if (currentUser?.type === 'admin') {
+          setCurrentView('admin-dashboard');
+        } else {
+          setCurrentView('admin-login');
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
+  }, [currentUser]);
+
+  const handleNavigate = (view: 'customer-portal' | 'admin-dashboard' | 'customer-login' | 'admin-login') => {
+    setCurrentView(view);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (view === 'admin-dashboard' || view === 'admin-login') {
+        url.searchParams.set('admin', 'true');
+        window.history.pushState({}, '', url.toString());
+      } else if (view === 'customer-portal' || view === 'customer-login') {
+        url.searchParams.delete('admin');
+        window.history.pushState({}, '', url.toString());
+      }
+    }
+  };
 
   // Modal states
   const [inspectingClaim, setInspectingClaim] = useState<Claim | null>(null);
@@ -156,13 +210,13 @@ export default function App() {
 
   const handleAdminLogin = (user: User) => {
     setCurrentUser(user);
-    setCurrentView('admin-dashboard');
+    handleNavigate('admin-dashboard');
     addToast('Admin Authenticated', 'Access granted to WMS Executive Console.');
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    setCurrentView('customer-login');
+    handleNavigate('customer-portal');
     addToast('Logged Out', 'You have been safely logged out.', 'info');
   };
 
@@ -175,6 +229,13 @@ export default function App() {
     };
     setProducts((prev) => [newProduct, ...prev]);
     addToast('Product Added', `"${newProduct.title}" is now available for customers.`, 'success');
+  };
+
+  const handleEditProduct = (updatedProduct: Product) => {
+    setProducts((prev) =>
+      prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
+    );
+    addToast('Product Updated', `"${updatedProduct.title}" details have been updated.`, 'success');
   };
 
   const handleToggleProductStatus = (productId: string | number) => {
@@ -284,7 +345,7 @@ export default function App() {
         <Navbar
           currentUser={currentUser}
           currentView={currentView}
-          onNavigate={(view) => setCurrentView(view)}
+          onNavigate={handleNavigate}
           onLogout={handleLogout}
           onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
           isAppFrameMode={isAppFrameMode}
@@ -296,14 +357,14 @@ export default function App() {
           {currentView === 'customer-login' && (
             <CustomerLogin
               onLogin={handleCustomerLogin}
-              onSwitchToAdmin={() => setCurrentView('admin-login')}
+              onSwitchToAdmin={() => handleNavigate('admin-login')}
             />
           )}
 
           {currentView === 'admin-login' && (
             <AdminLogin
               onLogin={handleAdminLogin}
-              onSwitchToCustomer={() => setCurrentView('customer-login')}
+              onSwitchToCustomer={() => handleNavigate('customer-portal')}
             />
           )}
 
@@ -326,6 +387,7 @@ export default function App() {
               products={products}
               claims={claims}
               onAddProduct={handleAddProduct}
+              onEditProduct={handleEditProduct}
               onToggleProductStatus={handleToggleProductStatus}
               onDeleteProduct={handleDeleteProduct}
               onUpdateClaimStatus={handleUpdateClaimStatus}
@@ -333,7 +395,7 @@ export default function App() {
               onResetData={handleResetData}
               onLogout={handleLogout}
               onNotify={addToast}
-              onSwitchToCustomerPortal={() => setCurrentView('customer-portal')}
+              onSwitchToCustomerPortal={() => handleNavigate('customer-portal')}
             />
           )}
         </main>
@@ -353,14 +415,8 @@ export default function App() {
               </span>
             </div>
 
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setCurrentView('admin-login')}
-                className="text-xs text-slate-500 hover:text-slate-900 transition flex items-center gap-1.5 font-semibold cursor-pointer"
-              >
-                <Shield className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Admin Console</span>
-              </button>
+            <div className="flex items-center gap-2 text-slate-400 font-medium">
+              <span>Verified Direct Cashback & Rewards</span>
             </div>
           </div>
         </footer>
@@ -368,7 +424,7 @@ export default function App() {
         {/* Modern Mobile App Bottom Navigation Dock */}
         <MobileBottomNav
           currentView={currentView}
-          onNavigate={(view) => setCurrentView(view)}
+          onNavigate={handleNavigate}
           currentUser={currentUser}
           customerTab={customerTab}
           onSetCustomerTab={(tab) => {

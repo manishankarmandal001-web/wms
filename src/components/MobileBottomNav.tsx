@@ -97,28 +97,22 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               <span className="text-[10px] mt-0.5 font-bold text-amber-700">App</span>
             </button>
 
-            {/* Tab 5: Account / Admin */}
+            {/* Tab 5: Account / Customer Profile */}
             <button
               onClick={() => {
-                if (currentUser?.type === 'admin') {
-                  onNavigate('admin-dashboard');
-                } else if (currentUser) {
+                if (currentUser) {
                   onSetCustomerTab && onSetCustomerTab('my-claims');
                 } else {
-                  onNavigate('admin-login');
+                  onNavigate('customer-login');
                 }
               }}
               className="flex flex-col items-center justify-center flex-1 py-1 text-slate-500 hover:text-slate-800 transition active:scale-95"
             >
               <div className="p-1 rounded-xl">
-                {currentUser?.type === 'admin' ? (
-                  <Shield className="w-5 h-5 text-indigo-600" />
-                ) : (
-                  <UserIcon className="w-5 h-5" />
-                )}
+                <UserIcon className="w-5 h-5" />
               </div>
               <span className="text-[10px] mt-0.5 truncate max-w-[55px]">
-                {currentUser?.type === 'admin' ? 'Admin' : currentUser ? 'Profile' : 'Admin'}
+                {currentUser ? 'My Profile' : 'Login'}
               </span>
             </button>
           </>

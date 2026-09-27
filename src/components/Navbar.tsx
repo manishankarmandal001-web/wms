@@ -98,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* View Switcher: Customer / Admin */}
+            {/* View Switcher: Show Customer App only when inside admin views */}
             {currentView?.startsWith('admin') ? (
               <button
                 onClick={() => onNavigate && onNavigate('customer-portal')}
@@ -108,19 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="hidden sm:inline">Customer App</span>
                 <span className="sm:hidden">User</span>
               </button>
-            ) : (
-              <button
-                onClick={() =>
-                  currentUser?.type === 'admin'
-                    ? onNavigate && onNavigate('admin-dashboard')
-                    : onNavigate && onNavigate('admin-login')
-                }
-                className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
-              >
-                <Shield className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Admin</span>
-              </button>
-            )}
+            ) : null}
 
             {/* User Profile / Status */}
             {currentUser ? (

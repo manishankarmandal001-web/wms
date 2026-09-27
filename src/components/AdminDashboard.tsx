@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product, Claim, ClaimStatus, MerchantPlatform } from '../types';
 import { AdminAnalyticsSummary } from './AdminAnalyticsSummary';
+import { processImageFile } from '../utils/imageUtils';
 import {
   TrendingUp,
   Clock,
@@ -28,13 +29,19 @@ import {
   ShoppingBag,
   ListFilter,
   Printer,
-  LogOut
+  LogOut,
+  Edit3,
+  Upload,
+  Image as ImageIcon,
+  KeyRound,
+  Link2
 } from 'lucide-react';
 
 interface AdminDashboardProps {
   products: Product[];
   claims: Claim[];
   onAddProduct: (product: Omit<Product, 'id' | 'createdAt'>) => void;
+  onEditProduct?: (product: Product) => void;
   onToggleProductStatus: (productId: string | number) => void;
   onDeleteProduct: (productId: string | number) => void;
   onUpdateClaimStatus: (claimId: string | number, status: ClaimStatus, adminNote?: string) => void;
@@ -49,6 +56,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   products,
   claims,
   onAddProduct,
+  onEditProduct,
   onToggleProductStatus,
   onDeleteProduct,
   onUpdateClaimStatus,
@@ -64,6 +72,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showExportModal, setShowExportModal] = useState(false);
   const [copiedUpi, setCopiedUpi] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [copiedAdminLink, setCopiedAdminLink] = useState(false);
 
   // Dashboard section switcher (All / Products / Claims)
   const [activeSection, setActiveSection] = useState<'all' | 'products' | 'claims'>('all');
@@ -76,13 +85,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [rejectingClaimId, setRejectingClaimId] = useState<string | number | null>(null);
   const [rejectReason, setRejectReason] = useState('Screenshot proof invalid or code mismatch.');
 
-  // Add Product form state
+  // Add / Edit Product modal state
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newPlatform, setNewPlatform] = useState<MerchantPlatform>('Amazon');
   const [newImage, setNewImage] = useState('');
   const [newLink, setNewLink] = useState('');
   const [newCode, setNewCode] = useState('');
   const [newCashback, setNewCashback] = useState('200');
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState('');
+
+  const adminDirectUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}${window.location.pathname}?admin=true`
+    : '?admin=true';
+
+  const handleCopyAdminLink = () => {
+    navigator.clipboard.writeText(adminDirectUrl);
+    setCopiedAdminLink(true);
+    if (onNotify) {
+      onNotify('Admin Link Copied!', 'Direct secret admin link copied to clipboard.', 'success');
+    }
+    setTimeout(() => setCopiedAdminLink(false), 3000);
+  };
+
+  const handleOpenAddModal = () => {
+    setEditingProduct(null);
+    setNewTitle('');
+    setNewPlatform('Amazon');
+    setNewImage('');
+    setNewLink('');
+    setNewCode('');
+    setNewCashback('200');
+    setImageUploadError('');
+    setShowAddModal(true);
+  };
+
+  const handleOpenEditModal = (prod: Product) => {
+    setEditingProduct(prod);
+    setNewTitle(prod.title);
+    setNewPlatform(prod.platform);
+    setNewImage(prod.image);
+    setNewLink(prod.link);
+    setNewCode(prod.code);
+    setNewCashback(String(prod.cashbackAmount || 150));
+    setImageUploadError('');
+    setShowAddModal(true);
+  };
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsProcessingImage(true);
+      setImageUploadError('');
+      // Compresses to max 800px and converts to pristine Base64 Data URL
+      const compressedDataUrl = await processImageFile(file, 800, 0.85);
+      setNewImage(compressedDataUrl);
+    } catch (err: any) {
+      setImageUploadError(err.message || 'Failed to process image file. Please try another image.');
+    } finally {
+      setIsProcessingImage(false);
+    }
+  };
 
   const handleCopyUpi = (upi: string) => {
     navigator.clipboard.writeText(upi);
@@ -96,27 +162,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  const handleCreateProduct = (e: React.FormEvent) => {
+  const handleCreateOrUpdateProduct = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle || !newCode) return;
+    if (!newTitle.trim() || !newCode.trim()) return;
 
-    onAddProduct({
-      title: newTitle.trim(),
-      platform: newPlatform,
-      image:
-        newImage.trim() ||
-        'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&q=80',
-      link: newLink.trim() || 'https://amazon.in',
-      code: newCode.trim().toUpperCase(),
-      cashbackAmount: Number(newCashback) || 150,
-      isActive: true
-    });
+    const finalImage =
+      newImage.trim() ||
+      'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&q=80';
 
-    setNewTitle('');
-    setNewImage('');
-    setNewLink('');
-    setNewCode('');
+    if (editingProduct && onEditProduct) {
+      onEditProduct({
+        ...editingProduct,
+        title: newTitle.trim(),
+        platform: newPlatform,
+        image: finalImage,
+        link: newLink.trim() || 'https://amazon.in',
+        code: newCode.trim().toUpperCase(),
+        cashbackAmount: Number(newCashback) || 150
+      });
+      if (onNotify) {
+        onNotify('Product Updated', `Successfully updated "${newTitle.trim()}".`, 'success');
+      }
+    } else {
+      onAddProduct({
+        title: newTitle.trim(),
+        platform: newPlatform,
+        image: finalImage,
+        link: newLink.trim() || 'https://amazon.in',
+        code: newCode.trim().toUpperCase(),
+        cashbackAmount: Number(newCashback) || 150,
+        isActive: true
+      });
+      if (onNotify) {
+        onNotify('Product Added', `Successfully added "${newTitle.trim()}".`, 'success');
+      }
+    }
+
     setShowAddModal(false);
+    setEditingProduct(null);
   };
 
   // Filtered Products for Admin
@@ -462,6 +545,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
+      {/* 🔐 Admin Direct Secret Link Access Card */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="p-1 rounded-md bg-amber-400 text-amber-950 font-black text-[10px] uppercase tracking-wider">
+              Secret Link
+            </span>
+            <h4 className="font-bold text-sm text-white">Direct Admin Access URL</h4>
+          </div>
+          <p className="text-xs text-slate-300 max-w-2xl">
+            Customer Portal থেকে Admin অপশন সম্পূর্ণ হাইড করে দেওয়া হয়েছে। ভবিষ্যতে সরাসরি এডমিন প্যানেলে লগইন করার জন্য নিচের সিক্রেট লিঙ্কটি আপনি বুকমার্ক বা সেভ করে রাখুন:
+          </p>
+          <div className="font-mono text-xs text-amber-300 bg-black/50 px-3 py-1.5 rounded-lg border border-white/10 break-all select-all flex items-center gap-2">
+            <KeyRound className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>{adminDirectUrl}</span>
+          </div>
+        </div>
+
+        <button
+          onClick={handleCopyAdminLink}
+          className="shrink-0 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95"
+        >
+          {copiedAdminLink ? (
+            <>
+              <Check className="w-4 h-4 text-emerald-300" />
+              <span>Link Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-4 h-4" />
+              <span>Copy Secret Admin Link</span>
+            </>
+          )}
+        </button>
+      </div>
+
       {/* Admin Module Navigation Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -593,7 +712,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <button
-                onClick={() => setShowAddModal(true)}
+                onClick={handleOpenAddModal}
                 className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
@@ -611,7 +730,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Click "+ Add Offer Product" above to create Amazon, Flipkart or Blinkit cashback offers with special codes.
               </p>
               <button
-                onClick={() => setShowAddModal(true)}
+                onClick={handleOpenAddModal}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <PlusCircle className="w-4 h-4" />
@@ -744,13 +863,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                         {/* Actions */}
                         <td className="p-4 text-center">
-                          <button
-                            onClick={() => onDeleteProduct(prod.id)}
-                            className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-                            title="Delete this product"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenEditModal(prod)}
+                              className="p-2 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-xl transition cursor-pointer"
+                              title="Edit product details & image"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => onDeleteProduct(prod.id)}
+                              className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                              title="Delete this product"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1094,24 +1222,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
       )}
 
-      {/* Add Offer Product Modal */}
+      {/* Add / Edit Offer Product Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white max-w-xl w-full rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-8">
+          <div className="bg-white max-w-xl w-full rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
             <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center">
               <div>
-                <h3 className="font-bold text-base">Add New Cashback Offer Product</h3>
-                <p className="text-xs text-slate-400">Configure special code and merchant store link</p>
+                <h3 className="font-bold text-base flex items-center gap-2">
+                  {editingProduct ? (
+                    <>
+                      <Edit3 className="w-4 h-4 text-indigo-400" />
+                      <span>Edit Cashback Offer Product</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="w-4 h-4 text-emerald-400" />
+                      <span>Add New Cashback Offer Product</span>
+                    </>
+                  )}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {editingProduct
+                    ? 'Modify product photo, special code, store link or payout reward'
+                    : 'Configure special code, upload photo and merchant store link'}
+                </p>
               </div>
               <button
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-white"
+                onClick={() => {
+                  setShowAddModal(false);
+                  setEditingProduct(null);
+                }}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreateProduct} className="p-6 space-y-4">
+            <form onSubmit={handleCreateOrUpdateProduct} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Product Title *
@@ -1140,6 +1287,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Flipkart">Flipkart</option>
                     <option value="Blinkit">Blinkit</option>
                     <option value="Myntra">Myntra</option>
+                    <option value="Other">Other Store</option>
                   </select>
                 </div>
 
@@ -1172,17 +1320,97 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               </div>
 
+              {/* 📸 Real Device Photo Upload with Instant Live Preview */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Product Image URL
-                </label>
-                <input
-                  type="url"
-                  value={newImage}
-                  onChange={(e) => setNewImage(e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full border border-slate-300 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Product Image *
+                  </label>
+                  {newImage && (
+                    <button
+                      type="button"
+                      onClick={() => setNewImage('')}
+                      className="text-[11px] text-rose-600 hover:underline font-semibold cursor-pointer"
+                    >
+                      Remove Photo
+                    </button>
+                  )}
+                </div>
+
+                {/* Instant Live Image Preview Box */}
+                {newImage ? (
+                  <div className="relative rounded-2xl border-2 border-indigo-200 bg-indigo-50/40 p-3 mb-2 flex items-center gap-3">
+                    <img
+                      src={newImage}
+                      alt="Uploaded Product Preview"
+                      className="w-20 h-20 rounded-xl object-cover bg-white border border-indigo-200 shadow-xs shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 text-xs">
+                      <div className="font-bold text-indigo-950 flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Image Uploaded & Ready!</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                        {newImage.startsWith('data:')
+                          ? 'Optimized device image (saved directly to catalog)'
+                          : newImage}
+                      </p>
+                      <div className="mt-2">
+                        <label className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-700 cursor-pointer shadow-2xs transition">
+                          <Upload className="w-3 h-3 text-indigo-600" />
+                          <span>Change Photo</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageFileChange}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-2xl p-4 text-center transition bg-slate-50/50 mb-2">
+                    <input
+                      type="file"
+                      id="product-photo-upload"
+                      accept="image/*"
+                      onChange={handleImageFileChange}
+                      className="hidden"
+                    />
+                    <label htmlFor="product-photo-upload" className="cursor-pointer block">
+                      <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-2">
+                        {isProcessingImage ? (
+                          <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Upload className="w-5 h-5" />
+                        )}
+                      </div>
+                      <p className="text-xs font-bold text-slate-800">
+                        {isProcessingImage ? 'Optimizing photo...' : 'Click to Upload Product Image from Device'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Choose photo from Phone Gallery, Camera or PC (JPG, PNG, WebP)
+                      </p>
+                    </label>
+                  </div>
+                )}
+
+                {imageUploadError && (
+                  <p className="text-xs text-rose-600 font-semibold mb-2">{imageUploadError}</p>
+                )}
+
+                {/* Optional Fallback Image URL Input */}
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <span className="text-[11px] text-slate-400 font-medium shrink-0">Or paste web link:</span>
+                  <input
+                    type="text"
+                    value={newImage.startsWith('data:') ? '' : newImage}
+                    onChange={(e) => setNewImage(e.target.value)}
+                    placeholder="https://..."
+                    className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1201,16 +1429,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex gap-3 pt-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingProduct(null);
+                  }}
                   className="flex-1 py-2.5 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition"
+                  disabled={isProcessingImage}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold shadow-md transition"
                 >
-                  Create Offer Product
+                  {editingProduct ? 'Save Changes' : 'Create Offer Product'}
                 </button>
               </div>
             </form>
