@@ -77,23 +77,37 @@ export default function App() {
     }
   });
 
+  // Check if current URL or session points to Admin access
+  const checkIsAdminRoute = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const search = window.location.search.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      const path = window.location.pathname.toLowerCase();
+      const isSession = sessionStorage.getItem('wms_admin_session') === 'true';
+      return (
+        search.includes('admin') ||
+        hash.includes('admin') ||
+        path.includes('/admin') ||
+        isSession
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const [currentView, setCurrentView] = useState<
     'customer-login' | 'customer-portal' | 'admin-login' | 'admin-dashboard'
   >(() => {
-    if (typeof window !== 'undefined') {
-      const search = window.location.search;
-      const hash = window.location.hash;
-      const path = window.location.pathname;
-      if (search.includes('admin') || hash.includes('admin') || path.endsWith('/admin')) {
+    if (checkIsAdminRoute()) {
+      try {
         const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
         if (savedUser) {
-          try {
-            const user = JSON.parse(savedUser);
-            if (user.type === 'admin') return 'admin-dashboard';
-          } catch {}
+          const user = JSON.parse(savedUser);
+          if (user.type === 'admin') return 'admin-dashboard';
         }
-        return 'admin-login';
-      }
+      } catch {}
+      return 'admin-login';
     }
     if (currentUser?.type === 'admin') return 'admin-dashboard';
     return 'customer-portal'; // Default to customer-portal so products are shown first!
@@ -102,38 +116,57 @@ export default function App() {
   // Listen for direct secret admin link in URL: ?admin=true or #admin or /admin
   useEffect(() => {
     const handleUrlChange = () => {
-      const search = window.location.search;
-      const hash = window.location.hash;
-      const path = window.location.pathname;
-      const isAdminRoute = search.includes('admin') || hash.includes('admin') || path.endsWith('/admin');
-      
-      if (isAdminRoute) {
-        if (currentUser?.type === 'admin') {
-          setCurrentView('admin-dashboard');
-        } else {
+      if (checkIsAdminRoute()) {
+        try {
+          const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
+          const isAdmin = savedUser ? JSON.parse(savedUser).type === 'admin' : false;
+          setCurrentView(isAdmin ? 'admin-dashboard' : 'admin-login');
+        } catch {
           setCurrentView('admin-login');
         }
       }
     };
 
+    handleUrlChange();
     window.addEventListener('popstate', handleUrlChange);
     window.addEventListener('hashchange', handleUrlChange);
+
+    // Also listen for Ctrl+Shift+A for the owner
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        handleNavigate('admin-login');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('hashchange', handleUrlChange);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [currentUser]);
 
   const handleNavigate = (view: 'customer-portal' | 'admin-dashboard' | 'customer-login' | 'admin-login') => {
     setCurrentView(view);
     if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      if (view === 'admin-dashboard' || view === 'admin-login') {
-        url.searchParams.set('admin', 'true');
-        window.history.pushState({}, '', url.toString());
-      } else if (view === 'customer-portal' || view === 'customer-login') {
-        url.searchParams.delete('admin');
-        window.history.pushState({}, '', url.toString());
+      try {
+        const url = new URL(window.location.href);
+        if (view === 'admin-dashboard' || view === 'admin-login') {
+          sessionStorage.setItem('wms_admin_session', 'true');
+          url.searchParams.set('admin', 'true');
+          url.hash = 'admin';
+          window.history.pushState({}, '', url.toString());
+        } else if (view === 'customer-portal' || view === 'customer-login') {
+          sessionStorage.removeItem('wms_admin_session');
+          url.searchParams.delete('admin');
+          if (url.hash.includes('admin')) {
+            url.hash = '';
+          }
+          window.history.pushState({}, '', url.toString());
+        }
+      } catch (e) {
+        console.error('URL push error', e);
       }
     }
   };

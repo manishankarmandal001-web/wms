@@ -97,8 +97,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [imageUploadError, setImageUploadError] = useState('');
 
   const adminDirectUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}${window.location.pathname}#admin`
-    : '#admin';
+    ? `${window.location.origin}${window.location.pathname}?admin=true`
+    : '?admin=true';
 
   const handleCopyAdminLink = () => {
     navigator.clipboard.writeText(adminDirectUrl);
@@ -496,14 +496,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-              <ShieldCheck className="w-5 h-5" />
+              <ShieldCheck className="w-5 h-5 text-amber-400" />
             </span>
-            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
-              Admin Executive Dashboard
-            </h2>
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-black tracking-tight flex items-center gap-2 flex-wrap">
+                <span>Admin Executive Dashboard</span>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                  Owner: Manishankar Mandal
+                </span>
+              </h2>
+            </div>
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Verify Uploaded Screenshot Proofs, Special Code Matches & Payout Approvals
+            Personal Console • Verify Screenshots, Match Special Codes & Approve UPI Payouts
           </p>
         </div>
 
