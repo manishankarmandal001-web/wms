@@ -37,6 +37,8 @@ interface CustomerPortalProps {
   onViewProof: (claim: Claim, type: 'order' | 'payment' | 'rating') => void;
   onLogin: (user: User) => void;
   onLogout?: () => void;
+  externalActiveTab?: 'offers' | 'my-claims';
+  onExternalActiveTabChange?: (tab: 'offers' | 'my-claims') => void;
 }
 
 export const CustomerPortal: React.FC<CustomerPortalProps> = ({
@@ -46,9 +48,16 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   onSubmitClaim,
   onViewProof,
   onLogin,
-  onLogout
+  onLogout,
+  externalActiveTab,
+  onExternalActiveTabChange
 }) => {
-  const [activeTab, setActiveTab] = useState<'offers' | 'my-claims'>('offers');
+  const [activeTabState, setActiveTabState] = useState<'offers' | 'my-claims'>('offers');
+  const activeTab = externalActiveTab !== undefined ? externalActiveTab : activeTabState;
+  const setActiveTab = (tab: 'offers' | 'my-claims') => {
+    setActiveTabState(tab);
+    if (onExternalActiveTabChange) onExternalActiveTabChange(tab);
+  };
   const [platformFilter, setPlatformFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);

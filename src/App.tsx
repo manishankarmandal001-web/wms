@@ -14,8 +14,16 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { LightboxModal } from './components/LightboxModal';
 import { VercelDeployGuideModal } from './components/VercelDeployGuideModal';
 import { Toast } from './components/Toast';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
+  const [isAppFrameMode, setIsAppFrameMode] = useState<boolean>(() => {
+    // Default to false, users can toggle on desktop
+    return false;
+  });
+  const [customerTab, setCustomerTab] = useState<'offers' | 'my-claims'>('offers');
   // Initialize state with localStorage fallbacks
   const [products, setProducts] = useState<Product[]>(() => {
     try {
@@ -265,84 +273,119 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 selection:bg-indigo-500 selection:text-white font-sans">
-      {/* Navigation Header - showing only "TBC WMS" */}
-      <Navbar
-        currentUser={currentUser}
-        currentView={currentView}
-        onNavigate={(view) => setCurrentView(view)}
-        onLogout={handleLogout}
-        onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
-      />
+    <div className={`min-h-screen flex flex-col bg-slate-100 text-slate-800 selection:bg-indigo-500 selection:text-white font-sans ${isAppFrameMode ? 'md:bg-slate-900 md:py-8 md:px-4' : ''}`}>
+      {/* Dynamic Mobile App Shell wrapper when in Phone Mockup Mode on desktop */}
+      <div className={`flex flex-col min-h-screen ${isAppFrameMode ? 'md:max-w-md md:mx-auto md:min-h-[844px] md:h-[844px] md:rounded-[45px] md:border-8 md:border-slate-800 md:shadow-2xl md:overflow-y-auto md:bg-slate-50 md:relative' : 'bg-slate-50'}`}>
+        
+        {/* PWA Mobile App Install Header Banner */}
+        <PWAInstallBanner />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {currentView === 'customer-login' && (
-          <CustomerLogin
-            onLogin={handleCustomerLogin}
-            onSwitchToAdmin={() => setCurrentView('admin-login')}
-          />
-        )}
+        {/* Navigation Header */}
+        <Navbar
+          currentUser={currentUser}
+          currentView={currentView}
+          onNavigate={(view) => setCurrentView(view)}
+          onLogout={handleLogout}
+          onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
+          isAppFrameMode={isAppFrameMode}
+          onToggleAppFrameMode={() => setIsAppFrameMode(!isAppFrameMode)}
+        />
 
-        {currentView === 'admin-login' && (
-          <AdminLogin
-            onLogin={handleAdminLogin}
-            onSwitchToCustomer={() => setCurrentView('customer-login')}
-          />
-        )}
+        {/* Main Application Container */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 md:pb-12">
+          {currentView === 'customer-login' && (
+            <CustomerLogin
+              onLogin={handleCustomerLogin}
+              onSwitchToAdmin={() => setCurrentView('admin-login')}
+            />
+          )}
 
-        {currentView === 'customer-portal' && (
-          <CustomerPortal
-            currentUser={currentUser}
-            products={products}
-            claims={claims}
-            onSubmitClaim={handleSubmitClaim}
-            onViewProof={handleViewProof}
-            onLogin={handleCustomerLogin}
-            onLogout={handleLogout}
-          />
-        )}
+          {currentView === 'admin-login' && (
+            <AdminLogin
+              onLogin={handleAdminLogin}
+              onSwitchToCustomer={() => setCurrentView('customer-login')}
+            />
+          )}
 
-        {currentView === 'admin-dashboard' && (
-          <AdminDashboard
-            products={products}
-            claims={claims}
-            onAddProduct={handleAddProduct}
-            onToggleProductStatus={handleToggleProductStatus}
-            onDeleteProduct={handleDeleteProduct}
-            onUpdateClaimStatus={handleUpdateClaimStatus}
-            onViewProof={handleViewProof}
-            onResetData={handleResetData}
-            onLogout={handleLogout}
-            onNotify={addToast}
-            onSwitchToCustomerPortal={() => setCurrentView('customer-portal')}
-          />
-        )}
-      </main>
+          {currentView === 'customer-portal' && (
+            <CustomerPortal
+              currentUser={currentUser}
+              products={products}
+              claims={claims}
+              onSubmitClaim={handleSubmitClaim}
+              onViewProof={handleViewProof}
+              onLogin={handleCustomerLogin}
+              onLogout={handleLogout}
+              externalActiveTab={customerTab}
+              onExternalActiveTabChange={setCustomerTab}
+            />
+          )}
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200/80 py-6 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap justify-between items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-md bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px]">
-              W
+          {currentView === 'admin-dashboard' && (
+            <AdminDashboard
+              products={products}
+              claims={claims}
+              onAddProduct={handleAddProduct}
+              onToggleProductStatus={handleToggleProductStatus}
+              onDeleteProduct={handleDeleteProduct}
+              onUpdateClaimStatus={handleUpdateClaimStatus}
+              onViewProof={handleViewProof}
+              onResetData={handleResetData}
+              onLogout={handleLogout}
+              onNotify={addToast}
+              onSwitchToCustomerPortal={() => setCurrentView('customer-portal')}
+            />
+          )}
+        </main>
+
+        {/* App Footer */}
+        <footer className="bg-white border-t border-slate-200/80 py-5 text-xs text-slate-500 mb-14 md:mb-0">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap justify-between items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-5 rounded-md bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px]">
+                T
+              </div>
+              <span className="font-bold text-slate-700">TBC WMS App</span>
+              <span>•</span>
+              <span className="text-emerald-600 font-semibold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                PWA Ready
+              </span>
             </div>
-            <span className="font-bold text-slate-700">WMS Cashback & Rewards Portal</span>
-            <span>•</span>
-            <span className="text-slate-400">Verified Platform</span>
-          </div>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setCurrentView('admin-login')}
-              className="text-xs text-slate-500 hover:text-slate-900 transition flex items-center gap-1.5 font-semibold cursor-pointer"
-            >
-              <Shield className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Admin Portal Access</span>
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setCurrentView('admin-login')}
+                className="text-xs text-slate-500 hover:text-slate-900 transition flex items-center gap-1.5 font-semibold cursor-pointer"
+              >
+                <Shield className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Admin Console</span>
+              </button>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+
+        {/* Modern Mobile App Bottom Navigation Dock */}
+        <MobileBottomNav
+          currentView={currentView}
+          onNavigate={(view) => setCurrentView(view)}
+          currentUser={currentUser}
+          customerTab={customerTab}
+          onSetCustomerTab={(tab) => {
+            setCurrentView('customer-portal');
+            setCustomerTab(tab);
+          }}
+          onOpenQuickClaim={() => {
+            setCurrentView('customer-portal');
+            setCustomerTab('offers');
+            addToast('Choose an Offer', 'Click "Claim Cashback" on any verified product below.', 'info');
+          }}
+          claimsCount={currentUser ? claims.filter((c) => c.customerMobile === currentUser.mobile).length : 0}
+        />
+
+        {/* Offline Connectivity Status Pill */}
+        <OfflineIndicator />
+      </div>
 
       {/* Proof Lightbox Modal */}
       <LightboxModal
