@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { ArrowRight, UserCheck, ShieldCheck, Phone, Mail, Lock, User as UserIcon } from 'lucide-react';
+import { ArrowRight, UserCheck, Phone, Mail, Lock, User as UserIcon } from 'lucide-react';
 
 interface CustomerLoginProps {
   onLogin: (user: User) => void;
-  onSwitchToAdmin: () => void;
+  onSwitchToAdmin?: () => void;
 }
 
-export const CustomerLogin: React.FC<CustomerLoginProps> = ({ onLogin, onSwitchToAdmin }) => {
+export const CustomerLogin: React.FC<CustomerLoginProps> = ({ onLogin }) => {
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
@@ -137,18 +137,6 @@ export const CustomerLogin: React.FC<CustomerLoginProps> = ({ onLogin, onSwitchT
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </button>
         </form>
-
-        {/* Switch to Admin */}
-        <div className="mt-6 pt-5 border-t border-slate-100 text-center">
-          <button
-            type="button"
-            onClick={onSwitchToAdmin}
-            className="text-xs text-slate-500 hover:text-slate-800 transition inline-flex items-center gap-1 font-semibold cursor-pointer"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Switch to Admin Console
-          </button>
-        </div>
       </div>
     </div>
   );

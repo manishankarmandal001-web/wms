@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { Shield, Smartphone, Monitor, Download, ExternalLink, User as UserIcon, LogOut, CheckCircle2, Wifi } from 'lucide-react';
+import { Shield, Smartphone, Download, ExternalLink, User as UserIcon, LogOut, CheckCircle2, Wifi } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
@@ -10,8 +10,6 @@ interface NavbarProps {
   onNavigate?: (view: 'customer-login' | 'customer-portal' | 'admin-login' | 'admin-dashboard') => void;
   onLogout?: () => void;
   onOpenDeployGuide?: () => void;
-  isAppFrameMode?: boolean;
-  onToggleAppFrameMode?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,8 +17,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentView,
   onNavigate,
   onLogout,
-  isAppFrameMode,
-  onToggleAppFrameMode,
 }) => {
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const isOnline = useOnlineStatus();
@@ -64,27 +60,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Right Action Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Desktop Mockup Toggle (Allows desktop users to preview Phone Mode or Full Web) */}
-            {onToggleAppFrameMode && (
-              <button
-                onClick={onToggleAppFrameMode}
-                className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-                title="Toggle between Mobile App Frame and Full Web layout"
-              >
-                {isAppFrameMode ? (
-                  <>
-                    <Monitor className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Web View</span>
-                  </>
-                ) : (
-                  <>
-                    <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Phone View</span>
-                  </>
-                )}
-              </button>
-            )}
-
             {/* In-App One-Click Install Button */}
             {!isInstalled && isInstallable && (
               <button

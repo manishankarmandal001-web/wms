@@ -97,8 +97,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [imageUploadError, setImageUploadError] = useState('');
 
   const adminDirectUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}${window.location.pathname}?admin=true`
-    : '?admin=true';
+    ? `${window.location.origin}${window.location.pathname}#admin`
+    : '#admin';
 
   const handleCopyAdminLink = () => {
     navigator.clipboard.writeText(adminDirectUrl);

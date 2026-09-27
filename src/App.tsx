@@ -19,10 +19,6 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
-  const [isAppFrameMode, setIsAppFrameMode] = useState<boolean>(() => {
-    // Default to false, users can toggle on desktop
-    return false;
-  });
   const [customerTab, setCustomerTab] = useState<'offers' | 'my-claims'>('offers');
   // Initialize state with localStorage fallbacks
   const [products, setProducts] = useState<Product[]>(() => {
@@ -334,10 +330,8 @@ export default function App() {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col bg-slate-100 text-slate-800 selection:bg-indigo-500 selection:text-white font-sans ${isAppFrameMode ? 'md:bg-slate-900 md:py-8 md:px-4' : ''}`}>
-      {/* Dynamic Mobile App Shell wrapper when in Phone Mockup Mode on desktop */}
-      <div className={`flex flex-col min-h-screen ${isAppFrameMode ? 'md:max-w-md md:mx-auto md:min-h-[844px] md:h-[844px] md:rounded-[45px] md:border-8 md:border-slate-800 md:shadow-2xl md:overflow-y-auto md:bg-slate-50 md:relative' : 'bg-slate-50'}`}>
-        
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 selection:bg-indigo-500 selection:text-white font-sans">
+      <div className="flex flex-col min-h-screen bg-slate-50">
         {/* PWA Mobile App Install Header Banner */}
         <PWAInstallBanner />
 
@@ -348,8 +342,6 @@ export default function App() {
           onNavigate={handleNavigate}
           onLogout={handleLogout}
           onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
-          isAppFrameMode={isAppFrameMode}
-          onToggleAppFrameMode={() => setIsAppFrameMode(!isAppFrameMode)}
         />
 
         {/* Main Application Container */}
@@ -357,7 +349,6 @@ export default function App() {
           {currentView === 'customer-login' && (
             <CustomerLogin
               onLogin={handleCustomerLogin}
-              onSwitchToAdmin={() => handleNavigate('admin-login')}
             />
           )}
 
