@@ -42,6 +42,7 @@ interface AdminDashboardProps {
   onResetData?: () => void;
   onLogout?: () => void;
   onNotify?: (title: string, message: string, type?: 'success' | 'error' | 'info') => void;
+  onSwitchToCustomerPortal?: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -54,7 +55,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onViewProof,
   onResetData,
   onLogout,
-  onNotify
+  onNotify,
+  onSwitchToCustomerPortal
 }) => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | ClaimStatus>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -423,6 +425,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {onSwitchToCustomerPortal && (
+            <button
+              onClick={onSwitchToCustomerPortal}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-950/40 transition flex items-center gap-1.5 cursor-pointer"
+              title="Open Customer Portal View"
+            >
+              <Eye className="w-4 h-4" />
+              <span>View Customer Portal</span>
+            </button>
+          )}
+
           {/* Prominent Export CSV / PDF for Auditing & Record-Keeping */}
           <button
             onClick={() => setShowExportModal(true)}

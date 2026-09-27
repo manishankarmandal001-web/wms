@@ -25,7 +25,8 @@ import {
   User as UserIcon,
   ArrowRight,
   Sparkles,
-  LogOut
+  LogOut,
+  Search
 } from 'lucide-react';
 
 interface CustomerPortalProps {
@@ -48,7 +49,8 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
   onLogout
 }) => {
   const [activeTab, setActiveTab] = useState<'offers' | 'my-claims'>('offers');
-  const [platformFilter, setPlatformFilter] = useState<'All' | MerchantPlatform>('All');
+  const [platformFilter, setPlatformFilter] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   // Auth modal states (shown when guest clicks to order / submit claim)
@@ -82,11 +84,26 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
     .filter((c) => c.status === 'Approved')
     .reduce((sum, c) => sum + (c.cashbackAmount || 150), 0);
 
-  // Filter available products (only active products are shown to customers)
+  // Dynamically extract all unique platforms from the actual product catalog
+  const availablePlatforms = Array.from(
+    new Set(['All', ...products.map((p) => p.platform).filter(Boolean)])
+  );
+
+  // Display ALL products listed by admin (with optional platform filter & search)
   const filteredProducts = products.filter((p) => {
-    if (p.isActive === false) return false;
-    if (platformFilter === 'All') return true;
-    return p.platform === platformFilter;
+    // If a platform filter is selected, match case-insensitively
+    if (platformFilter !== 'All' && p.platform?.toLowerCase() !== platformFilter.toLowerCase()) {
+      return false;
+    }
+    // Search query matching
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchTitle = p.title?.toLowerCase().includes(q);
+      const matchCode = p.code?.toLowerCase().includes(q);
+      const matchPlatform = p.platform?.toLowerCase().includes(q);
+      if (!matchTitle && !matchCode && !matchPlatform) return false;
+    }
+    return true;
   });
 
   const handleCopyCode = (code: string) => {
@@ -439,21 +456,44 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
         </div>
 
         {activeTab === 'offers' && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs font-bold text-slate-500 mr-1">Platform:</span>
-            {(['All', 'Amazon', 'Flipkart', 'Blinkit'] as const).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPlatformFilter(p)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
-                  platformFilter === p
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search products, codes..."
+                className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-44 sm:w-56 bg-white"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Dynamic Platform Pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-bold text-slate-500 mr-1">Platform:</span>
+              {availablePlatforms.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPlatformFilter(p)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                    platformFilter.toLowerCase() === p.toLowerCase()
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -564,7 +604,11 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
 
-                      {existingClaim ? (
+                      {prod.isActive === false ? (
+                        <div className="bg-slate-100 border border-slate-300 rounded-xl p-3 text-center">
+                          <span className="text-xs font-bold text-slate-500">Offer Paused / Inactive</span>
+                        </div>
+                      ) : existingClaim ? (
                         <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             {existingClaim.status === 'Approved' ? (

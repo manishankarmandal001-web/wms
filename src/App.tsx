@@ -20,7 +20,11 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-      return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_PRODUCTS;
     } catch {
       return INITIAL_PRODUCTS;
     }
@@ -34,6 +38,31 @@ export default function App() {
       return INITIAL_CLAIMS;
     }
   });
+
+  // Sync across different browser tabs/windows in real time
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.PRODUCTS && e.newValue) {
+        try {
+          const updated = JSON.parse(e.newValue);
+          if (Array.isArray(updated)) {
+            setProducts(updated);
+          }
+        } catch {}
+      }
+      if (e.key === STORAGE_KEYS.CLAIMS && e.newValue) {
+        try {
+          const updated = JSON.parse(e.newValue);
+          if (Array.isArray(updated)) {
+            setClaims(updated);
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
@@ -286,6 +315,7 @@ export default function App() {
             onResetData={handleResetData}
             onLogout={handleLogout}
             onNotify={addToast}
+            onSwitchToCustomerPortal={() => setCurrentView('customer-portal')}
           />
         )}
       </main>
