@@ -412,10 +412,10 @@ function MainApp() {
   // ================= PRODUCT OPERATIONS =================
   // ADD PRODUCT: sends to Firestore (Vercel) + local server + updates state immediately
   const handleAddProduct = async (newProdData: Omit<Product, 'id' | 'createdAt'>) => {
-    const tempId = Date.now();
+    const unifiedId = String(Date.now());
     const optimisticProduct: Product = {
       ...newProdData,
-      id: tempId,
+      id: unifiedId,
       createdAt: new Date().toISOString().split('T')[0],
       isActive: true
     };
@@ -431,34 +431,18 @@ function MainApp() {
     addToast('Product Added', `"${optimisticProduct.title}" is now live in Customer Portal.`, 'success');
     notifyOtherTabs();
 
-    // 1. Persist to Google Cloud Firestore (all devices on Vercel get instant real-time sync)
+    // 1. Persist to Google Cloud Firestore with unified ID (all devices on Vercel get instant real-time sync)
     try {
-      const fsProd = await fsCreateProduct(newProdData);
-      setProducts((prev) => {
-        const next = prev.map((p) => (p.id === tempId ? fsProd : p));
-        try {
-          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
-        } catch {}
-        return next;
-      });
+      await fsCreateProduct({ ...newProdData, id: unifiedId });
     } catch (err) {
       console.warn('Firestore product create notice:', err);
     }
 
-    // 2. Persist to server API
+    // 2. Persist to server API with unified ID
     try {
-      const serverResult = await apiCreateProduct(newProdData);
-      if (serverResult) {
-        setProducts((prev) => {
-          const next = prev.map((p) => (p.id === tempId ? serverResult : p));
-          try {
-            localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        notifyOtherTabs();
-      }
+      await apiCreateProduct({ ...newProdData, id: unifiedId } as any);
     } catch {}
+    notifyOtherTabs();
   };
 
   // EDIT PRODUCT: updates title, image, code, link, cashback immediately + saves to Firestore and server
@@ -531,21 +515,25 @@ function MainApp() {
   // PERMANENT DELETE PRODUCT: permanently removes from Firestore, state, localStorage, and server!
   const handleDeleteProduct = async (productId: string | number) => {
     const prod = products.find((p) => String(p.id) === String(productId));
+    const prodCode = prod?.code;
+    const prodTitle = prod?.title;
 
     setProducts((prev) => {
-      const next = prev.filter((p) => String(p.id) !== String(productId));
+      const next = prev.filter(
+        (p) => String(p.id) !== String(productId) && (!prodCode || p.code !== prodCode)
+      );
       try {
         localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
       } catch {}
       return next;
     });
 
-    addToast('Product Permanently Deleted', `"${prod?.title || 'Item'}" permanently removed.`, 'info');
+    addToast('Product Permanently Deleted', `"${prodTitle || 'Item'}" permanently removed.`, 'info');
     notifyOtherTabs();
 
-    // 1. Permanently delete from Google Cloud Firestore (reflects immediately on Vercel across all devices)
+    // 1. Permanently delete from Google Cloud Firestore (sweeps by doc id and product code so all devices sync instantly)
     try {
-      await fsDeleteProduct(productId);
+      await fsDeleteProduct(productId, prodCode);
     } catch (err) {
       console.warn('Firestore product deletion notice:', err);
     }

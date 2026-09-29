@@ -132,8 +132,8 @@ export function subscribeToClaims(callback: (claims: Claim[]) => void) {
 }
 
 // Firestore operations for Product
-export async function fsCreateProduct(product: Omit<Product, 'id' | 'createdAt'>): Promise<Product> {
-  const id = String(Date.now());
+export async function fsCreateProduct(product: Omit<Product, 'id' | 'createdAt'> & { id?: string | number }): Promise<Product> {
+  const id = product.id ? String(product.id) : String(Date.now());
   const createdAt = new Date().toISOString().split('T')[0];
   const newProduct: Product = {
     ...product,
@@ -154,14 +154,50 @@ export async function fsUpdateProduct(product: Product): Promise<void> {
 }
 
 export async function fsToggleProduct(id: string | number, currentActive: boolean): Promise<void> {
-  const docRef = doc(db, 'products', String(id));
-  await updateDoc(docRef, {
-    isActive: !currentActive
-  });
+  const idStr = String(id);
+  try {
+    const docRef = doc(db, 'products', idStr);
+    await updateDoc(docRef, { isActive: !currentActive });
+  } catch {}
+
+  // Sweep any doc with matching inner id
+  try {
+    const snap = await getDocs(productsCol);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (d.id === idStr || String(data.id) === idStr) {
+        await updateDoc(d.ref, { isActive: !currentActive });
+      }
+    }
+  } catch {}
 }
 
-export async function fsDeleteProduct(id: string | number): Promise<void> {
-  await deleteDoc(doc(db, 'products', String(id)));
+export async function fsDeleteProduct(id: string | number, productCode?: string): Promise<void> {
+  const idStr = String(id);
+
+  // 1. Direct doc deletion
+  try {
+    await deleteDoc(doc(db, 'products', idStr));
+  } catch {}
+
+  // 2. Comprehensive Firestore sweep: deletes any document where doc.id matches, data.id matches, or special code matches
+  try {
+    const snap = await getDocs(productsCol);
+    const searchCode = productCode ? String(productCode).trim().toUpperCase() : '';
+    for (const d of snap.docs) {
+      const data = d.data();
+      const docCode = String(data.code || '').trim().toUpperCase();
+      if (
+        d.id === idStr ||
+        String(data.id) === idStr ||
+        (searchCode && docCode === searchCode)
+      ) {
+        await deleteDoc(d.ref);
+      }
+    }
+  } catch (err) {
+    console.warn('fsDeleteProduct sweep notice:', err);
+  }
 }
 
 // Firestore operations for Claims

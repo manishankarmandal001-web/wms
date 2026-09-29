@@ -150,7 +150,7 @@ async function startServer() {
       }
 
       const newProduct = {
-        id: Date.now(),
+        id: req.body.id ? String(req.body.id) : String(Date.now()),
         title: String(title).trim(),
         platform: String(platform).trim(),
         image: String(image || '').trim() || 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=600&q=80',
@@ -233,8 +233,11 @@ async function startServer() {
   app.delete('/api/products/:id', (req, res) => {
     try {
       const { id } = req.params;
+      const idUpper = String(id).trim().toUpperCase();
       const initialLen = db.products.length;
-      db.products = db.products.filter((p) => String(p.id) !== String(id));
+      db.products = db.products.filter(
+        (p) => String(p.id) !== String(id) && String(p.code).trim().toUpperCase() !== idUpper
+      );
       saveDb(db);
 
       // Instant push permanent deletion to all connected devices in 0ms!

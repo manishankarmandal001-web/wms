@@ -98,8 +98,26 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
     new Set(['All', ...products.map((p) => p.platform).filter(Boolean)])
   );
 
-  // Display ALL products listed by admin (with optional platform filter & search)
+  // Display ALL products listed by admin (filtering demo products & with optional platform filter & search)
   const filteredProducts = products.filter((p) => {
+    // Exclude any legacy demo products
+    const idStr = String(p.id);
+    const codeStr = String(p.code || '').trim().toUpperCase();
+    const titleStr = String(p.title || '').trim().toLowerCase();
+    if (
+      idStr === '1' ||
+      idStr === '2' ||
+      idStr === '3' ||
+      codeStr === 'AMZ-EAR-250' ||
+      codeStr === 'FLP-WAT-350' ||
+      codeStr === 'BLK-OIL-150' ||
+      titleStr.includes('wireless bluetooth noise') ||
+      titleStr.includes('smart amoled fitness') ||
+      titleStr.includes('premium cold-pressed extra virgin')
+    ) {
+      return false;
+    }
+
     // If a platform filter is selected, match case-insensitively
     if (platformFilter !== 'All' && p.platform?.toLowerCase() !== platformFilter.toLowerCase()) {
       return false;
