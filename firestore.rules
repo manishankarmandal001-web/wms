@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Products: all devices (mobile, desktop, Vercel) can read catalog & admin can write/update/delete
+    match /products/{productId} {
+      allow read, write: if true;
+    }
+
+    // Claims: customers can submit claims & admin can review, approve, mark refund paid
+    match /claims/{claimId} {
+      allow read, write: if true;
+    }
+
+    // Connection testing
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

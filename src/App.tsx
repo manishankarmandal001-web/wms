@@ -23,22 +23,53 @@ import {
   apiUpdateClaimStatus,
   apiResetData
 } from './utils/api';
+import {
+  subscribeToProducts,
+  subscribeToClaims,
+  fsCreateProduct,
+  fsUpdateProduct,
+  fsToggleProduct,
+  fsDeleteProduct,
+  fsCreateClaim,
+  fsUpdateClaimStatus,
+  fsResetAll
+} from './firebase';
+
+export const isLegacyDemoProduct = (p: any): boolean => {
+  if (!p) return false;
+  const idStr = String(p.id);
+  const codeStr = String(p.code || '').toUpperCase();
+  const titleStr = String(p.title || '').toLowerCase();
+  return (
+    idStr === '1' ||
+    idStr === '2' ||
+    idStr === '3' ||
+    codeStr === 'AMZ-EAR-250' ||
+    codeStr === 'FLP-WAT-350' ||
+    codeStr === 'BLK-OIL-150' ||
+    titleStr.includes('wireless bluetooth noise') ||
+    titleStr.includes('smart amoled fitness') ||
+    titleStr.includes('premium cold-pressed extra virgin')
+  );
+};
 
 function MainApp() {
   const [customerTab, setCustomerTab] = useState<'offers' | 'my-claims'>('offers');
   const [customerView, setCustomerView] = useState<'customer-portal' | 'customer-login'>('customer-portal');
 
-  // Shared Persistent Products State: initial read from localStorage (if exists)
+  // Shared Persistent Products State: initial read from localStorage (if exists), filtering demo products
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
       if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed; // Allow empty array if user deleted all products!
+        if (Array.isArray(parsed)) {
+          return parsed.filter((p) => !isLegacyDemoProduct(p));
+        }
       }
-      return INITIAL_PRODUCTS;
+      return [];
     } catch {
-      return INITIAL_PRODUCTS;
+      return [];
     }
   });
 
@@ -69,7 +100,30 @@ function MainApp() {
     } catch {}
   }, []);
 
-  // Server-Sent Events (SSE) for instant push across ALL devices (phones, tablets, PCs)
+  // 1. Google Cloud Firestore Real-time Multi-Device Sync (works 100% on Vercel across all phones & PCs)
+  useEffect(() => {
+    const unsubProducts = subscribeToProducts((liveProducts) => {
+      const clean = liveProducts.filter((p) => !isLegacyDemoProduct(p));
+      setProducts(clean);
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(clean));
+      } catch {}
+    });
+
+    const unsubClaims = subscribeToClaims((liveClaims) => {
+      setClaims(liveClaims);
+      try {
+        localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(liveClaims));
+      } catch {}
+    });
+
+    return () => {
+      unsubProducts();
+      unsubClaims();
+    };
+  }, []);
+
+  // 2. Server-Sent Events (SSE) for instant push when running on Node.js
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -85,9 +139,10 @@ function MainApp() {
             const data = JSON.parse(event.data);
             if (data.type === 'CONNECTED') {
               if (Array.isArray(data.products)) {
-                setProducts(data.products);
+                const clean = data.products.filter((p: any) => !isLegacyDemoProduct(p));
+                setProducts(clean);
                 try {
-                  localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(data.products));
+                  localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(clean));
                 } catch {}
               }
               if (Array.isArray(data.claims)) {
@@ -98,9 +153,10 @@ function MainApp() {
               }
             } else if (data.type === 'PRODUCTS_UPDATED') {
               if (Array.isArray(data.payload)) {
-                setProducts(data.payload);
+                const clean = data.payload.filter((p: any) => !isLegacyDemoProduct(p));
+                setProducts(clean);
                 try {
-                  localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(data.payload));
+                  localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(clean));
                 } catch {}
               }
             } else if (data.type === 'CLAIMS_UPDATED') {
@@ -165,9 +221,10 @@ function MainApp() {
       ]);
 
       if (serverProducts !== null) {
-        setProducts(serverProducts);
+        const clean = serverProducts.filter((p) => !isLegacyDemoProduct(p));
+        setProducts(clean);
         try {
-          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(serverProducts));
+          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(clean));
         } catch {}
       }
 
@@ -353,7 +410,7 @@ function MainApp() {
   };
 
   // ================= PRODUCT OPERATIONS =================
-  // ADD PRODUCT: sends to backend + updates state immediately
+  // ADD PRODUCT: sends to Firestore (Vercel) + local server + updates state immediately
   const handleAddProduct = async (newProdData: Omit<Product, 'id' | 'createdAt'>) => {
     const tempId = Date.now();
     const optimisticProduct: Product = {
@@ -364,7 +421,7 @@ function MainApp() {
     };
 
     setProducts((prev) => {
-      const next = [optimisticProduct, ...prev];
+      const next = [optimisticProduct, ...prev.filter((p) => !isLegacyDemoProduct(p))];
       try {
         localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
       } catch {}
@@ -374,21 +431,37 @@ function MainApp() {
     addToast('Product Added', `"${optimisticProduct.title}" is now live in Customer Portal.`, 'success');
     notifyOtherTabs();
 
-    // Persist to server
-    const serverResult = await apiCreateProduct(newProdData);
-    if (serverResult) {
+    // 1. Persist to Google Cloud Firestore (all devices on Vercel get instant real-time sync)
+    try {
+      const fsProd = await fsCreateProduct(newProdData);
       setProducts((prev) => {
-        const next = prev.map((p) => (p.id === tempId ? serverResult : p));
+        const next = prev.map((p) => (p.id === tempId ? fsProd : p));
         try {
           localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
         } catch {}
         return next;
       });
-      notifyOtherTabs();
+    } catch (err) {
+      console.warn('Firestore product create notice:', err);
     }
+
+    // 2. Persist to server API
+    try {
+      const serverResult = await apiCreateProduct(newProdData);
+      if (serverResult) {
+        setProducts((prev) => {
+          const next = prev.map((p) => (p.id === tempId ? serverResult : p));
+          try {
+            localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        notifyOtherTabs();
+      }
+    } catch {}
   };
 
-  // EDIT PRODUCT: updates title, image, code, link, cashback immediately + saves to server
+  // EDIT PRODUCT: updates title, image, code, link, cashback immediately + saves to Firestore and server
   const handleEditProduct = async (updatedProduct: Product) => {
     setProducts((prev) => {
       const next = prev.map((p) =>
@@ -403,13 +476,25 @@ function MainApp() {
     addToast('Product Updated', `"${updatedProduct.title}" has been updated live.`, 'success');
     notifyOtherTabs();
 
-    // Persist to server
-    await apiUpdateProduct(updatedProduct);
+    // 1. Google Cloud Firestore (Vercel)
+    try {
+      await fsUpdateProduct(updatedProduct);
+    } catch (err) {
+      console.warn('Firestore product update notice:', err);
+    }
+
+    // 2. Local Node server
+    try {
+      await apiUpdateProduct(updatedProduct);
+    } catch {}
     notifyOtherTabs();
   };
 
   // TOGGLE STATUS
   const handleToggleProductStatus = async (productId: string | number) => {
+    const targetProduct = products.find((p) => String(p.id) === String(productId));
+    const currentActive = targetProduct?.isActive !== false;
+
     setProducts((prev) => {
       const next = prev.map((p) => {
         if (String(p.id) === String(productId)) {
@@ -430,11 +515,20 @@ function MainApp() {
     });
 
     notifyOtherTabs();
-    await apiToggleProduct(productId);
+
+    // 1. Firestore
+    try {
+      await fsToggleProduct(productId, currentActive);
+    } catch {}
+
+    // 2. Local Node server
+    try {
+      await apiToggleProduct(productId);
+    } catch {}
     notifyOtherTabs();
   };
 
-  // PERMANENT DELETE PRODUCT: permanently removes from state, localStorage, and server file!
+  // PERMANENT DELETE PRODUCT: permanently removes from Firestore, state, localStorage, and server!
   const handleDeleteProduct = async (productId: string | number) => {
     const prod = products.find((p) => String(p.id) === String(productId));
 
@@ -449,13 +543,22 @@ function MainApp() {
     addToast('Product Permanently Deleted', `"${prod?.title || 'Item'}" permanently removed.`, 'info');
     notifyOtherTabs();
 
-    // Permanently remove from server storage
-    await apiDeleteProduct(productId);
+    // 1. Permanently delete from Google Cloud Firestore (reflects immediately on Vercel across all devices)
+    try {
+      await fsDeleteProduct(productId);
+    } catch (err) {
+      console.warn('Firestore product deletion notice:', err);
+    }
+
+    // 2. Permanently remove from server storage
+    try {
+      await apiDeleteProduct(productId);
+    } catch {}
     notifyOtherTabs();
   };
 
   // ================= CLAIM OPERATIONS =================
-  // SUBMIT CLAIM: sends claim to server immediately so admin sees it in real time
+  // SUBMIT CLAIM: sends claim to Firestore & server immediately so admin sees it in real time
   const handleSubmitClaim = async (claimData: Omit<Claim, 'id' | 'submittedAt' | 'status'>) => {
     const tempId = Date.now();
     const optimisticClaim: Claim = {
@@ -481,18 +584,34 @@ function MainApp() {
     );
     notifyOtherTabs();
 
-    // Send to backend server
-    const serverClaim = await apiCreateClaim(claimData);
-    if (serverClaim) {
+    // 1. Google Cloud Firestore
+    try {
+      const fsClaim = await fsCreateClaim(claimData);
       setClaims((prev) => {
-        const next = prev.map((c) => (c.id === tempId ? serverClaim : c));
+        const next = prev.map((c) => (c.id === tempId ? fsClaim : c));
         try {
           localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(next));
         } catch {}
         return next;
       });
-      notifyOtherTabs();
+    } catch (err) {
+      console.warn('Firestore claim create notice:', err);
     }
+
+    // 2. Send to backend server
+    try {
+      const serverClaim = await apiCreateClaim(claimData);
+      if (serverClaim) {
+        setClaims((prev) => {
+          const next = prev.map((c) => (c.id === tempId ? serverClaim : c));
+          try {
+            localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        notifyOtherTabs();
+      }
+    } catch {}
   };
 
   // UPDATE CLAIM STATUS
@@ -541,11 +660,23 @@ function MainApp() {
     }
     notifyOtherTabs();
 
-    // Persist to server
-    await apiUpdateClaimStatus(claimId, newStatus, adminNote, {
-      isRefunded: isPaid ? true : (isRefunded === false ? false : undefined),
-      refundedAt: isPaid ? nowIso : undefined
-    });
+    // 1. Persist to Firestore (Vercel)
+    try {
+      await fsUpdateClaimStatus(claimId, newStatus, adminNote, {
+        isRefunded: isPaid ? true : (isRefunded === false ? false : undefined),
+        refundedAt: isPaid ? nowIso : undefined
+      });
+    } catch (err) {
+      console.warn('Firestore claim status update notice:', err);
+    }
+
+    // 2. Persist to server
+    try {
+      await apiUpdateClaimStatus(claimId, newStatus, adminNote, {
+        isRefunded: isPaid ? true : (isRefunded === false ? false : undefined),
+        refundedAt: isPaid ? nowIso : undefined
+      });
+    } catch {}
     notifyOtherTabs();
   };
 
@@ -555,24 +686,22 @@ function MainApp() {
   };
 
   const handleResetData = async () => {
-    if (window.confirm('Clear all products and submitted claims records?')) {
-      const result = await apiResetData();
-      if (result) {
-        setProducts(result.products || []);
-        setClaims(result.claims || []);
-        try {
-          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(result.products || []));
-          localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(result.claims || []));
-        } catch {}
-      } else {
-        setProducts([]);
-        setClaims([]);
-        try {
-          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
-          localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify([]));
-        } catch {}
-      }
-      addToast('Data Cleared', 'All products and records have been cleared.', 'info');
+    if (window.confirm('Clear all products and submitted claims records across all devices?')) {
+      try {
+        await fsResetAll();
+      } catch {}
+
+      try {
+        await apiResetData();
+      } catch {}
+
+      setProducts([]);
+      setClaims([]);
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify([]));
+      } catch {}
+      addToast('Data Cleared', 'All products and records have been cleared from all devices.', 'info');
       notifyOtherTabs();
     }
   };

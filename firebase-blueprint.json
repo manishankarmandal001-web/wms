@@ -1,0 +1,154 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Affiliate offer product eligible for cashback verification",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique product identifier"
+        },
+        "title": {
+          "type": "string",
+          "description": "Product display title"
+        },
+        "platform": {
+          "type": "string",
+          "description": "E-commerce platform name"
+        },
+        "code": {
+          "type": "string",
+          "description": "Special verification secret code"
+        },
+        "cashbackAmount": {
+          "type": "number",
+          "description": "Guaranteed cashback amount in INR"
+        },
+        "image": {
+          "type": "string",
+          "description": "Product image URL"
+        },
+        "link": {
+          "type": "string",
+          "description": "Affiliate/buy store link URL"
+        },
+        "description": {
+          "type": "string",
+          "description": "Product specifications and cashback instructions"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO date string when product was added"
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Whether offer is currently active"
+        }
+      },
+      "required": ["title", "code", "cashbackAmount"]
+    },
+    "Claim": {
+      "title": "Claim",
+      "description": "Customer cashback submission with proof screenshots",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique claim identifier"
+        },
+        "productId": {
+          "type": "string",
+          "description": "Reference ID of purchased product"
+        },
+        "productTitle": {
+          "type": "string",
+          "description": "Title of purchased product"
+        },
+        "platform": {
+          "type": "string",
+          "description": "Store platform where order was placed"
+        },
+        "systemCode": {
+          "type": "string",
+          "description": "Expected verification code for product"
+        },
+        "specialCode": {
+          "type": "string",
+          "description": "Code entered by customer from packaging/receipt"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Full name of claimant"
+        },
+        "customerMobile": {
+          "type": "string",
+          "description": "Phone number of claimant"
+        },
+        "customerEmail": {
+          "type": "string",
+          "description": "Email address of claimant"
+        },
+        "orderImgData": {
+          "type": "string",
+          "description": "Order confirmation screenshot"
+        },
+        "paymentImgData": {
+          "type": "string",
+          "description": "Payment proof screenshot"
+        },
+        "ratingImgData": {
+          "type": "string",
+          "description": "Store review/rating screenshot"
+        },
+        "upiId": {
+          "type": "string",
+          "description": "Customer UPI address for direct cashback transfer"
+        },
+        "cashbackAmount": {
+          "type": "number",
+          "description": "Cashback payout amount in INR"
+        },
+        "submittedAt": {
+          "type": "string",
+          "description": "ISO timestamp of claim submission"
+        },
+        "status": {
+          "type": "string",
+          "description": "Claim status: Pending, Approved, Paid, Rejected"
+        },
+        "isRefunded": {
+          "type": "boolean",
+          "description": "Whether cashback refund payment has been marked as transferred"
+        },
+        "refundedAt": {
+          "type": "string",
+          "description": "ISO timestamp when refund was transferred"
+        },
+        "paidAt": {
+          "type": "string",
+          "description": "ISO timestamp when marked paid"
+        },
+        "adminNote": {
+          "type": "string",
+          "description": "Administrative notes or remarks"
+        },
+        "rejectionReason": {
+          "type": "string",
+          "description": "Reason given if rejected"
+        }
+      },
+      "required": ["productId", "customerMobile", "upiId", "status"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Live catalog of active & paused cashback offer products"
+    },
+    "/claims/{claimId}": {
+      "schema": "Claim",
+      "description": "Submitted cashback claims and verification records"
+    }
+  }
+}
