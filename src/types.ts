@@ -14,7 +14,7 @@ export interface Product {
   isActive?: boolean; // Active / Inactive toggle
 }
 
-export type ClaimStatus = 'Pending' | 'Approved' | 'Rejected';
+export type ClaimStatus = 'Pending' | 'Approved' | 'Paid' | 'Rejected';
 
 export interface Claim {
   id: string | number;
@@ -35,6 +35,9 @@ export interface Claim {
   cashbackAmount?: number;
   adminNote?: string;
   processedAt?: string;
+  isRefunded?: boolean;
+  refundedAt?: string;
+  paidAt?: string;
 }
 
 export interface User {

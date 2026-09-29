@@ -542,12 +542,16 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                       {/* Image & Platform Badge */}
                       <div className="relative h-52 bg-slate-100 overflow-hidden">
                         <img
+                          key={`${prod.id}-${prod.image}`}
                           src={prod.image}
                           alt={prod.title}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80';
+                            const target = e.target as HTMLImageElement;
+                            if (!target.src.includes('photo-1505740420928-5e560c06d30e')) {
+                              target.src =
+                                'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&q=80';
+                            }
                           }}
                         />
                         <span
@@ -785,19 +789,36 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                           <div className="flex flex-col gap-1">
                             <span
                               className={`px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 w-fit ${
-                                claim.status === 'Approved'
-                                  ? 'bg-emerald-100 text-emerald-800'
+                                claim.status === 'Paid' || claim.isRefunded
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  : claim.status === 'Approved'
+                                  ? 'bg-blue-100 text-blue-800 border border-blue-200'
                                   : claim.status === 'Rejected'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : 'bg-amber-100 text-amber-800'
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                  : 'bg-amber-100 text-amber-800 border border-amber-200'
                               }`}
                             >
-                              {claim.status === 'Approved' && (
-                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              {(claim.status === 'Paid' || claim.isRefunded) ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Refund Paid (Cashback Sent ✓)</span>
+                                </>
+                              ) : claim.status === 'Approved' ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Approved (Processing Payment)</span>
+                                </>
+                              ) : claim.status === 'Rejected' ? (
+                                <>
+                                  <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Rejected</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>Pending Verification</span>
+                                </>
                               )}
-                              {claim.status === 'Pending' && <Clock className="w-3.5 h-3.5" />}
-                              {claim.status === 'Rejected' && <XCircle className="w-3.5 h-3.5" />}
-                              {claim.status}
                             </span>
                             <span className="font-bold text-slate-900 text-xs">
                               ₹{claim.cashbackAmount || 150} Cashback

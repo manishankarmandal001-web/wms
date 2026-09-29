@@ -4,6 +4,8 @@ import { AdminDashboard } from '../components/AdminDashboard';
 import { AdminLogin } from '../components/AdminLogin';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useTheme } from '../context/ThemeContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 import {
   ShieldCheck,
   ExternalLink,
@@ -27,7 +29,12 @@ interface AdminAppProps {
   onEditProduct: (product: Product) => void;
   onToggleProductStatus: (id: string | number) => void;
   onDeleteProduct: (id: string | number) => void;
-  onUpdateClaimStatus: (id: string | number, status: ClaimStatus, rejectionReason?: string) => void;
+  onUpdateClaimStatus: (
+    id: string | number,
+    status: ClaimStatus,
+    rejectionReason?: string,
+    isRefunded?: boolean
+  ) => void;
   onViewProof: (claim: Claim, type: 'order' | 'payment' | 'rating') => void;
   onResetData: () => void;
   onNotify: (title: string, message: string, type?: 'success' | 'error' | 'info') => void;
@@ -55,15 +62,30 @@ export const AdminApp: React.FC<AdminAppProps> = ({
 
   // Calculate live stats for quick header badge
   const pendingClaimsCount = claims.filter((c) => c.status === 'Pending').length;
-  const approvedClaimsCount = claims.filter((c) => c.status === 'Approved').length;
+  const approvedClaimsCount = claims.filter((c) => c.status === 'Approved' || c.status === 'Paid').length;
+  const refundedClaimsCount = claims.filter((c) => c.status === 'Paid' || c.isRefunded).length;
   const activeProductsCount = products.filter((p) => p.isActive).length;
 
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const isAdminAuthenticated = currentUser?.type === 'admin';
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 font-sans selection:bg-amber-500 selection:text-slate-950">
+    <div
+      className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
+        isLight
+          ? 'bg-slate-100 text-slate-800 selection:bg-amber-500 selection:text-slate-950'
+          : 'bg-slate-950 text-slate-100 selection:bg-amber-500 selection:text-slate-950'
+      }`}
+    >
       {/* 🛡️ DEDICATED ADMIN APP TOPBAR */}
-      <header className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-md border-b border-indigo-500/20 shadow-xl">
+      <header
+        className={`sticky top-0 z-50 backdrop-blur-md transition-colors duration-200 ${
+          isLight
+            ? 'bg-white/95 border-b border-slate-200 shadow-xs'
+            : 'bg-slate-900/95 border-b border-indigo-500/20 shadow-xl'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between gap-3">
             {/* Admin Brand */}
@@ -73,42 +95,59 @@ export const AdminApp: React.FC<AdminAppProps> = ({
                   <ShieldCheck className="w-6 h-6 text-slate-950" />
                 </div>
                 <span
-                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-900 ${
-                    isOnline ? 'bg-emerald-500' : 'bg-amber-500'
-                  }`}
+                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 ${
+                    isLight ? 'border-white' : 'border-slate-900'
+                  } ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`}
                   title={isOnline ? 'System Online' : 'Offline Mode'}
                 />
               </div>
 
               <div>
                 <div className="flex items-center gap-2">
-                  <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1.5">
+                  <h1
+                    className={`text-base sm:text-lg font-black tracking-tight flex items-center gap-1.5 ${
+                      isLight ? 'text-slate-900' : 'text-white'
+                    }`}
+                  >
                     <span>WMS Admin Pro</span>
-                    <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                    <span className="text-[10px] uppercase font-black px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-700 border border-amber-400/40">
                       App
                     </span>
                   </h1>
                 </div>
-                <p className="text-[11px] text-slate-400 flex items-center gap-1 font-medium">
+                <p
+                  className={`text-[11px] flex items-center gap-1 font-medium ${
+                    isLight ? 'text-slate-500' : 'text-slate-400'
+                  }`}
+                >
                   <span>Owner Console</span>
                   <span>•</span>
-                  <span className="text-amber-300 font-bold">Manishankar Mandal</span>
+                  <span className="text-amber-600 font-bold">Manishankar Mandal</span>
                 </p>
               </div>
             </div>
 
             {/* Live Stats Pills (Visible on Tablet & Desktop) */}
             {isAdminAuthenticated && (
-              <div className="hidden lg:flex items-center gap-2 bg-slate-950/80 px-3 py-1.5 rounded-2xl border border-slate-800">
-                <div className="flex items-center gap-1.5 text-xs text-amber-400 font-semibold px-2 py-0.5 rounded-lg bg-amber-400/10">
+              <div
+                className={`hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-2xl border ${
+                  isLight
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-950/80 border-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 text-xs text-amber-600 font-semibold px-2 py-0.5 rounded-lg bg-amber-400/15">
                   <Clock className="w-3.5 h-3.5" />
                   <span>Pending: {pendingClaimsCount}</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold px-2 py-0.5 rounded-lg bg-emerald-400/10">
+                <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold px-2 py-0.5 rounded-lg bg-emerald-400/15">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Approved: {approvedClaimsCount}</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-indigo-400 font-semibold px-2 py-0.5 rounded-lg bg-indigo-400/10">
+                <div className="flex items-center gap-1.5 text-xs text-teal-700 font-bold px-2 py-0.5 rounded-lg bg-teal-400/20 border border-teal-500/30">
+                  <span>Refunded (Yes): {refundedClaimsCount}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-indigo-600 font-semibold px-2 py-0.5 rounded-lg bg-indigo-400/15">
                   <Package className="w-3.5 h-3.5" />
                   <span>Offers: {activeProductsCount}</span>
                 </div>
@@ -117,6 +156,9 @@ export const AdminApp: React.FC<AdminAppProps> = ({
 
             {/* Right Action Controls */}
             <div className="flex items-center gap-2">
+              {/* Screen Light / Dark Mode Toggle */}
+              <ThemeToggle variant="admin" />
+
               {/* Install Admin App Button */}
               {!isInstalled && isInstallable && (
                 <button
@@ -132,7 +174,11 @@ export const AdminApp: React.FC<AdminAppProps> = ({
               {/* Direct Link to Customer App */}
               <button
                 onClick={onOpenCustomerApp}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 hover:text-white border border-indigo-500/30 font-bold text-xs transition cursor-pointer"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer border ${
+                  isLight
+                    ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                    : 'bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 hover:text-white border-indigo-500/30'
+                }`}
                 title="Switch to Customer App"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -144,7 +190,7 @@ export const AdminApp: React.FC<AdminAppProps> = ({
               {isAdminAuthenticated && (
                 <button
                   onClick={onAdminLogout}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-bold transition cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/30 text-xs font-bold transition cursor-pointer"
                   title="Logout from Admin App"
                 >
                   <LogOut className="w-3.5 h-3.5" />

@@ -3,6 +3,7 @@ import { User } from '../types';
 import { Shield, Smartphone, Download, ExternalLink, User as UserIcon, LogOut, CheckCircle2, Wifi } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { ThemeToggle } from './ThemeToggle';
 
 interface NavbarProps {
   currentUser?: User | null;
@@ -60,6 +61,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Right Action Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
+            {/* Screen Light / Dark Mode Toggle */}
+            <ThemeToggle variant="navbar" />
+
             {/* In-App One-Click Install Button */}
             {!isInstalled && isInstallable && (
               <button

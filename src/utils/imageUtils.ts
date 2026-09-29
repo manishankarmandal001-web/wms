@@ -2,7 +2,7 @@
  * Utility to process and compress images for browser storage and fast rendering.
  * Scales down large camera/phone photos to max 800px and 85% JPEG quality (~50-80KB).
  */
-export async function processImageFile(file: File, maxDimension = 800, quality = 0.85): Promise<string> {
+export async function processImageFile(file: File, maxDimension = 640, quality = 0.8): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) {
       reject(new Error('Selected file is not an image.'));

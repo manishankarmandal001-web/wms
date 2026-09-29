@@ -5,6 +5,7 @@ import { CustomerLogin } from '../components/CustomerLogin';
 import { CustomerPortal } from '../components/CustomerPortal';
 import { PWAInstallBanner } from '../components/PWAInstallBanner';
 import { MobileBottomNav } from '../components/MobileBottomNav';
+import { useTheme } from '../context/ThemeContext';
 
 interface CustomerAppProps {
   products: Product[];
@@ -37,9 +38,18 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({
   onOpenDeployGuide,
   onOpenQuickClaim
 }) => {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 selection:bg-indigo-500 selection:text-white font-sans">
-      <div className="flex flex-col min-h-screen bg-slate-50">
+    <div
+      className={`min-h-screen flex flex-col font-sans transition-colors duration-200 ${
+        isLight
+          ? 'bg-slate-50 text-slate-800 selection:bg-indigo-500 selection:text-white'
+          : 'bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white'
+      }`}
+    >
+      <div className={`flex flex-col min-h-screen ${isLight ? 'bg-slate-50' : 'bg-slate-950'}`}>
         {/* PWA Mobile App Install Header Banner */}
         <PWAInstallBanner />
 
@@ -76,7 +86,13 @@ export const CustomerApp: React.FC<CustomerAppProps> = ({
         </main>
 
         {/* App Footer */}
-        <footer className="bg-white border-t border-slate-200/80 py-5 text-xs text-slate-500 mb-14 md:mb-0">
+        <footer
+          className={`border-t py-5 text-xs mb-14 md:mb-0 transition-colors ${
+            isLight
+              ? 'bg-white border-slate-200/80 text-slate-500'
+              : 'bg-slate-900 border-slate-800 text-slate-400'
+          }`}
+        >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap justify-between items-center gap-3">
             <div className="flex items-center gap-2">
               <div className="w-5 h-5 rounded-md bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px]">

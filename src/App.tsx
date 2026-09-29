@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { User, Product, Claim, ClaimStatus, ToastNotification } from './types';
 import {
   INITIAL_PRODUCTS,
@@ -11,18 +11,30 @@ import { LightboxModal } from './components/LightboxModal';
 import { VercelDeployGuideModal } from './components/VercelDeployGuideModal';
 import { Toast } from './components/Toast';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { ThemeProvider } from './context/ThemeContext';
+import {
+  apiFetchProducts,
+  apiCreateProduct,
+  apiUpdateProduct,
+  apiToggleProduct,
+  apiDeleteProduct,
+  apiFetchClaims,
+  apiCreateClaim,
+  apiUpdateClaimStatus,
+  apiResetData
+} from './utils/api';
 
-export default function App() {
+function MainApp() {
   const [customerTab, setCustomerTab] = useState<'offers' | 'my-claims'>('offers');
   const [customerView, setCustomerView] = useState<'customer-portal' | 'customer-login'>('customer-portal');
 
-  // Shared Persistent Products State
+  // Shared Persistent Products State: initial read from localStorage (if exists)
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed; // Allow empty array if user deleted all products!
       }
       return INITIAL_PRODUCTS;
     } catch {
@@ -34,22 +46,163 @@ export default function App() {
   const [claims, setClaims] = useState<Claim[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CLAIMS);
-      return saved ? JSON.parse(saved) : INITIAL_CLAIMS;
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      return INITIAL_CLAIMS;
     } catch {
       return INITIAL_CLAIMS;
     }
   });
 
-  // Sync state in real time across different browser tabs/windows
+  // Cross-tab broadcast channel for instant 0ms sync
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  // Clear legacy cached demo products on boot
+  useEffect(() => {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.OLD_PRODUCTS);
+      localStorage.removeItem(STORAGE_KEYS.OLD_CLAIMS);
+      localStorage.removeItem('wms_products_live_v1');
+      localStorage.removeItem('wms_claims_live_v1');
+    } catch {}
+  }, []);
+
+  // Server-Sent Events (SSE) for instant push across ALL devices (phones, tablets, PCs)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: any = null;
+
+    const setupSSE = () => {
+      try {
+        eventSource = new EventSource('/api/events');
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'CONNECTED') {
+              if (Array.isArray(data.products)) {
+                setProducts(data.products);
+                try {
+                  localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(data.products));
+                } catch {}
+              }
+              if (Array.isArray(data.claims)) {
+                setClaims(data.claims);
+                try {
+                  localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(data.claims));
+                } catch {}
+              }
+            } else if (data.type === 'PRODUCTS_UPDATED') {
+              if (Array.isArray(data.payload)) {
+                setProducts(data.payload);
+                try {
+                  localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(data.payload));
+                } catch {}
+              }
+            } else if (data.type === 'CLAIMS_UPDATED') {
+              if (Array.isArray(data.payload)) {
+                setClaims(data.payload);
+                try {
+                  localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(data.payload));
+                } catch {}
+              }
+            }
+          } catch (err) {
+            console.warn('Error parsing SSE event:', err);
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource?.close();
+          eventSource = null;
+          // Reconnect after 3 seconds
+          reconnectTimeout = setTimeout(setupSSE, 3000);
+        };
+      } catch (err) {
+        console.warn('SSE connection failed, falling back to polling:', err);
+      }
+    };
+
+    setupSSE();
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const channel = new BroadcastChannel('wms_sync_channel');
+      broadcastChannelRef.current = channel;
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'SYNC_ALL') {
+          syncWithServer();
+        }
+      };
+      return () => {
+        channel.close();
+      };
+    }
+  }, []);
+
+  const notifyOtherTabs = useCallback(() => {
+    try {
+      broadcastChannelRef.current?.postMessage({ type: 'SYNC_ALL', timestamp: Date.now() });
+    } catch {}
+  }, []);
+
+  // Fetch live products & claims from server
+  const syncWithServer = useCallback(async () => {
+    try {
+      const [serverProducts, serverClaims] = await Promise.all([
+        apiFetchProducts(),
+        apiFetchClaims()
+      ]);
+
+      if (serverProducts !== null) {
+        setProducts(serverProducts);
+        try {
+          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(serverProducts));
+        } catch {}
+      }
+
+      if (serverClaims !== null) {
+        setClaims(serverClaims);
+        try {
+          localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(serverClaims));
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('Sync with server failed, using local cache:', e);
+    }
+  }, []);
+
+  // Initial fetch on mount & background polling every 2.5s for real-time live sync across devices
+  useEffect(() => {
+    syncWithServer();
+
+    const interval = setInterval(() => {
+      syncWithServer();
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [syncWithServer]);
+
+  // Sync state across different browser tabs/windows via storage event
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEYS.PRODUCTS && e.newValue) {
+      if (e.key === STORAGE_KEYS.PRODUCTS && e.newValue !== null) {
         try {
           const updated = JSON.parse(e.newValue);
           if (Array.isArray(updated)) setProducts(updated);
         } catch {}
       }
-      if (e.key === STORAGE_KEYS.CLAIMS && e.newValue) {
+      if (e.key === STORAGE_KEYS.CLAIMS && e.newValue !== null) {
         try {
           const updated = JSON.parse(e.newValue);
           if (Array.isArray(updated)) setClaims(updated);
@@ -60,24 +213,6 @@ export default function App() {
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
-
-  // Save products on change
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-    } catch (e) {
-      console.error('Error saving products to localStorage', e);
-    }
-  }, [products]);
-
-  // Save claims on change
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(claims));
-    } catch (e) {
-      console.error('Error saving claims to localStorage', e);
-    }
-  }, [claims]);
 
   // Current logged in user (customer or admin)
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -217,29 +352,67 @@ export default function App() {
     addToast('Signed Out', 'You have been safely signed out.', 'info');
   };
 
-  // Product Operations
-  const handleAddProduct = (newProdData: Omit<Product, 'id' | 'createdAt'>) => {
-    const newProduct: Product = {
+  // ================= PRODUCT OPERATIONS =================
+  // ADD PRODUCT: sends to backend + updates state immediately
+  const handleAddProduct = async (newProdData: Omit<Product, 'id' | 'createdAt'>) => {
+    const tempId = Date.now();
+    const optimisticProduct: Product = {
       ...newProdData,
-      id: Date.now(),
+      id: tempId,
       createdAt: new Date().toISOString().split('T')[0],
       isActive: true
     };
-    setProducts((prev) => [newProduct, ...prev]);
-    addToast('Product Added', `"${newProduct.title}" is now live in Customer App.`, 'success');
+
+    setProducts((prev) => {
+      const next = [optimisticProduct, ...prev];
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    addToast('Product Added', `"${optimisticProduct.title}" is now live in Customer Portal.`, 'success');
+    notifyOtherTabs();
+
+    // Persist to server
+    const serverResult = await apiCreateProduct(newProdData);
+    if (serverResult) {
+      setProducts((prev) => {
+        const next = prev.map((p) => (p.id === tempId ? serverResult : p));
+        try {
+          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      notifyOtherTabs();
+    }
   };
 
-  const handleEditProduct = (updatedProduct: Product) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
-    );
-    addToast('Product Updated', `"${updatedProduct.title}" has been updated.`, 'success');
+  // EDIT PRODUCT: updates title, image, code, link, cashback immediately + saves to server
+  const handleEditProduct = async (updatedProduct: Product) => {
+    setProducts((prev) => {
+      const next = prev.map((p) =>
+        String(p.id) === String(updatedProduct.id) ? updatedProduct : p
+      );
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    addToast('Product Updated', `"${updatedProduct.title}" has been updated live.`, 'success');
+    notifyOtherTabs();
+
+    // Persist to server
+    await apiUpdateProduct(updatedProduct);
+    notifyOtherTabs();
   };
 
-  const handleToggleProductStatus = (productId: string | number) => {
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.id === productId) {
+  // TOGGLE STATUS
+  const handleToggleProductStatus = async (productId: string | number) => {
+    setProducts((prev) => {
+      const next = prev.map((p) => {
+        if (String(p.id) === String(productId)) {
           const updated = !p.isActive;
           addToast(
             updated ? 'Deal Activated' : 'Deal Paused',
@@ -249,45 +422,99 @@ export default function App() {
           return { ...p, isActive: updated };
         }
         return p;
-      })
-    );
+      });
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    notifyOtherTabs();
+    await apiToggleProduct(productId);
+    notifyOtherTabs();
   };
 
-  const handleDeleteProduct = (productId: string | number) => {
-    const prod = products.find((p) => p.id === productId);
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
-    addToast('Product Deleted', `"${prod?.title || 'Item'}" removed from catalog.`, 'info');
+  // PERMANENT DELETE PRODUCT: permanently removes from state, localStorage, and server file!
+  const handleDeleteProduct = async (productId: string | number) => {
+    const prod = products.find((p) => String(p.id) === String(productId));
+
+    setProducts((prev) => {
+      const next = prev.filter((p) => String(p.id) !== String(productId));
+      try {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    addToast('Product Permanently Deleted', `"${prod?.title || 'Item'}" permanently removed.`, 'info');
+    notifyOtherTabs();
+
+    // Permanently remove from server storage
+    await apiDeleteProduct(productId);
+    notifyOtherTabs();
   };
 
-  // Claim Operations
-  const handleSubmitClaim = (claimData: Omit<Claim, 'id' | 'submittedAt' | 'status'>) => {
-    const newClaim: Claim = {
+  // ================= CLAIM OPERATIONS =================
+  // SUBMIT CLAIM: sends claim to server immediately so admin sees it in real time
+  const handleSubmitClaim = async (claimData: Omit<Claim, 'id' | 'submittedAt' | 'status'>) => {
+    const tempId = Date.now();
+    const optimisticClaim: Claim = {
       ...claimData,
-      id: Date.now(),
+      id: tempId,
       submittedAt: new Date().toISOString(),
       status: 'Pending'
     };
-    setClaims((prev) => [newClaim, ...prev]);
+
+    setClaims((prev) => {
+      const next = [optimisticClaim, ...prev];
+      try {
+        localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
     setCustomerTab('my-claims');
     addToast(
       'Claim Submitted!',
       'Your order screenshots & cashback claim have been sent for verification.',
       'success'
     );
+    notifyOtherTabs();
+
+    // Send to backend server
+    const serverClaim = await apiCreateClaim(claimData);
+    if (serverClaim) {
+      setClaims((prev) => {
+        const next = prev.map((c) => (c.id === tempId ? serverClaim : c));
+        try {
+          localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      notifyOtherTabs();
+    }
   };
 
-  const handleUpdateClaimStatus = (
+  // UPDATE CLAIM STATUS
+  const handleUpdateClaimStatus = async (
     claimId: string | number,
     newStatus: ClaimStatus,
-    adminNote?: string
+    adminNote?: string,
+    isRefunded?: boolean
   ) => {
-    setClaims((prev) =>
-      prev.map((c) => {
-        if (c.id === claimId) {
+    const isPaid = newStatus === 'Paid' || isRefunded === true;
+    const nowIso = new Date().toISOString();
+
+    setClaims((prev) => {
+      const next = prev.map((c) => {
+        if (String(c.id) === String(claimId)) {
           return {
             ...c,
             status: newStatus,
-            adminNote: adminNote || c.adminNote,
+            adminNote: adminNote !== undefined ? adminNote : c.adminNote,
+            isRefunded: isPaid ? true : (isRefunded !== undefined ? isRefunded : c.isRefunded),
+            refundedAt: isPaid ? (c.refundedAt || nowIso) : (isRefunded === false ? undefined : c.refundedAt),
+            paidAt: isPaid ? (c.paidAt || nowIso) : (isRefunded === false ? undefined : c.paidAt),
             processedAt: new Date().toLocaleTimeString('en-IN', {
               hour: '2-digit',
               minute: '2-digit',
@@ -296,14 +523,30 @@ export default function App() {
           };
         }
         return c;
-      })
-    );
+      });
+      try {
+        localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
 
-    if (newStatus === 'Approved') {
-      addToast('Claim Approved', `Claim #${claimId} approved & cashback released.`, 'success');
+    if (newStatus === 'Paid' || isRefunded === true) {
+      addToast('Refund Confirmed (YES)', `Claim #${claimId}: Payment refund has been marked as PAID!`, 'success');
+    } else if (newStatus === 'Approved') {
+      addToast('Claim Approved', `Claim #${claimId} approved. You can click YES when refund is sent.`, 'success');
+    } else if (isRefunded === false) {
+      addToast('Refund Status Changed', `Claim #${claimId}: Marked as refund unpaid.`, 'info');
     } else {
       addToast('Claim Rejected', `Claim #${claimId} was marked as rejected.`, 'error');
     }
+    notifyOtherTabs();
+
+    // Persist to server
+    await apiUpdateClaimStatus(claimId, newStatus, adminNote, {
+      isRefunded: isPaid ? true : (isRefunded === false ? false : undefined),
+      refundedAt: isPaid ? nowIso : undefined
+    });
+    notifyOtherTabs();
   };
 
   const handleViewProof = (claim: Claim, type: 'order' | 'payment' | 'rating') => {
@@ -311,13 +554,26 @@ export default function App() {
     setInspectingType(type);
   };
 
-  const handleResetData = () => {
+  const handleResetData = async () => {
     if (window.confirm('Clear all products and submitted claims records?')) {
-      setProducts([]);
-      setClaims([]);
-      localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-      localStorage.removeItem(STORAGE_KEYS.CLAIMS);
-      addToast('Data Cleared', 'All products and claims records have been cleared.', 'info');
+      const result = await apiResetData();
+      if (result) {
+        setProducts(result.products || []);
+        setClaims(result.claims || []);
+        try {
+          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(result.products || []));
+          localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify(result.claims || []));
+        } catch {}
+      } else {
+        setProducts([]);
+        setClaims([]);
+        try {
+          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
+          localStorage.setItem(STORAGE_KEYS.CLAIMS, JSON.stringify([]));
+        } catch {}
+      }
+      addToast('Data Cleared', 'All products and records have been cleared.', 'info');
+      notifyOtherTabs();
     }
   };
 
@@ -384,5 +640,13 @@ export default function App() {
       {/* Connectivity Status Pill */}
       <OfflineIndicator />
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <MainApp />
+    </ThemeProvider>
   );
 }

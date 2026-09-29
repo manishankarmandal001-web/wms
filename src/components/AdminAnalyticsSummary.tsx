@@ -38,11 +38,12 @@ export const AdminAnalyticsSummary: React.FC<AdminAnalyticsSummaryProps> = ({ cl
   // Core metrics
   const totalClaims = claims.length;
   const pendingClaims = claims.filter((c) => c.status === 'Pending').length;
-  const approvedClaims = claims.filter((c) => c.status === 'Approved').length;
+  const approvedClaims = claims.filter((c) => c.status === 'Approved' || c.status === 'Paid').length;
+  const paidRefundedClaims = claims.filter((c) => c.status === 'Paid' || c.isRefunded).length;
   const rejectedClaims = claims.filter((c) => c.status === 'Rejected').length;
 
   const totalCashbackDisbursed = claims
-    .filter((c) => c.status === 'Approved')
+    .filter((c) => c.status === 'Approved' || c.status === 'Paid' || c.isRefunded)
     .reduce((sum, c) => sum + (c.cashbackAmount || 150), 0);
 
   const pendingCashbackLiability = claims
